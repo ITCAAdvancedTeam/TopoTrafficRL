@@ -1,36 +1,18 @@
-# this is a learning file for POMDP library
-
-"""The classic Tiger problem.
+"""This POMDP comparison class is modified based on the classic Tiger problem.
 
 This is a POMDP problem; Namely, it specifies both
 the POMDP (i.e. state, action, observation space)
 and the T/O/R for the agent as well as the environment.
 
-The description of the tiger problem is as follows: (Quote from
-`POMDP: Introduction to Partially Observable Markov Decision Processes
-<https://cran.r-project.org/web/packages/pomdp/vignettes/POMDP.pdf>`_ by
-Kamalzadeh and Hahsler )
-
-A tiger is put with equal probability behind one
-of two doors, while treasure is put behind the other one.
-You are standing in front of the two closed doors and
-need to decide which one to open. If you open the door
-with the tiger, you will get hurt (negative reward).
-But if you open the door with treasure, you receive
-a positive reward. Instead of opening a door right away,
-you also have the option to wait and listen for tiger noises. But
-listening is neither free nor entirely accurate. You might hear the
-tiger behind the left door while it is actually behind the right
-door and vice versa.
-
-States: tiger-left, tiger-right
-Actions: open-left, open-right, listen
+States: [s0,s1,...,sk], math:`S\subseteq[\mathbb{R},\mathbb{R},string]^(k+1)`
+Actions: [a0,a1,...,ak], math:`A\subseteq[\mathbb{R}^(k+1)`
 Rewards:
-    +10 for opening treasure door. -100 for opening tiger door.
-    -1 for listening.
-Observations: You can hear either "tiger-left", or "tiger-right".
+    - Crush reward
+    - velocity reward
+    - acceleration reward
+Observations: [o0,o1,...,ok], math:`S\subseteq[\mathbb{R},\mathbb{R},\mathbb{R}]^(k+1)`
 
-Note that in this example, the TigerProblem is a POMDP that
+Note that in this example, it is a POMDP that
 also contains the agent and the environment as its fields. In
 general this doesn't need to be the case. (Refer to more
 complicated examples.)
@@ -44,67 +26,91 @@ import sys
 import copy
 
 
-class TigerState(pomdp_py.State):
-    def __init__(self, name):
-        self.name = name
+# State space
+stype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'U10')]  # 'f8' is for double, 'U10' is for strings up to 10 characters
+class State(pomdp_py.State):
+    def __init__(self, data):
+        # Ensure that `data` is in the correct structured format
+        if not isinstance(data, np.ndarray) or data.dtype != np.dtype(stype):
+            raise ValueError("Data must be a NumPy structured array with the dtype: stype")
+        self.data = data
 
     def __hash__(self):
-        return hash(self.name)
+        # Convert to a tuple for hash calculation
+        return hash(tuple(self.data))
 
     def __eq__(self, other):
-        if isinstance(other, TigerState):
-            return self.name == other.name
+        if isinstance(other, State):
+            # Compare structured arrays element-wise
+            return np.array_equal(self.data, other.data)
         return False
 
     def __str__(self):
-        return self.name
+        return str(self.data)
 
     def __repr__(self):
-        return "TigerState(%s)" % self.name
-
-    def other(self):
-        if self.name.endswith("left"):
-            return TigerState("tiger-right")
-        else:
-            return TigerState("tiger-left")
+        return f"State(data={self.data})"
 
 
-class TigerAction(pomdp_py.Action):
-    def __init__(self, name):
-        self.name = name
+# Action space
+class Action:
+    """The action is a vector of velocities."""
+
+    def __init__(self, control):
+        """
+        Initializes an action with a vector of velocities.
+
+        Args:
+            control (array-like): array of velocities as doubles.
+        """
+        # Convert control to a NumPy array of floats
+        self.control = np.array(control, dtype='float64')
 
     def __hash__(self):
-        return hash(self.name)
+        # Convert to tuple for hashing
+        return hash(tuple(self.control))
 
     def __eq__(self, other):
-        if isinstance(other, TigerAction):
-            return self.name == other.name
+        if isinstance(other, Action):
+            # Use np.array_equal for element-wise comparison
+            return np.array_equal(self.control, other.control)
         return False
 
     def __str__(self):
-        return self.name
+        return self.__repr__()
 
     def __repr__(self):
-        return "TigerAction(%s)" % self.name
+        return f"Action(control={self.control.tolist()})"
 
 
-class TigerObservation(pomdp_py.Observation):
-    def __init__(self, name):
-        self.name = name
+# Observation space
+otype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'f8')]  # 'f8' for double
+class Observation:
+    def __init__(self, data):
+        """
+        Initializes an observation with a structured array of tuples (double, double, double).
+
+        Args:
+            data (array-like): Array of tuples, where each tuple is (double, double, double).
+        """
+        # Ensure data is a structured NumPy array with the correct dtype
+        self.data = np.array(data, dtype=otype)
 
     def __hash__(self):
-        return hash(self.name)
+        # Convert structured array to a tuple for hashing
+        return hash(tuple(map(tuple, self.data)))
 
     def __eq__(self, other):
-        if isinstance(other, TigerObservation):
-            return self.name == other.name
+        if isinstance(other, Observation):
+            # Use np.array_equal for structured array comparison
+            return np.array_equal(self.data, other.data)
         return False
 
     def __str__(self):
-        return self.name
+        return str(self.data)
 
     def __repr__(self):
-        return "TigerObservation(%s)" % self.name
+        return f"Observation(data={self.data})"
 
 
 # Observation model
@@ -129,15 +135,15 @@ class ObservationModel(pomdp_py.ObservationModel):
             thresh = 0.5
 
         if random.uniform(0, 1) < thresh:
-            return TigerObservation(next_state.name)
+            return Observation(next_state.name)
         else:
-            return TigerObservation(next_state.other().name)
+            return Observation(next_state.other().name)
 
     def get_all_observations(self):
         """Only need to implement this if you're using
         a solver that needs to enumerate over the observation space
         (e.g. value iteration)"""
-        return [TigerObservation(s) for s in {"tiger-left", "tiger-right"}]
+        return [Observation(s) for s in {"tiger-left", "tiger-right"}]
 
 
 # Transition Model
@@ -157,13 +163,13 @@ class TransitionModel(pomdp_py.TransitionModel):
         if action.name.startswith("open"):
             return random.choice(self.get_all_states())
         else:
-            return TigerState(state.name)
+            return State(state.name)
 
     def get_all_states(self):
         """Only need to implement this if you're using
         a solver that needs to enumerate over the observation space (e.g. value iteration)
         """
-        return [TigerState(s) for s in {"tiger-left", "tiger-right"}]
+        return [State(s) for s in {"tiger-left", "tiger-right"}]
 
 
 # Reward Model
@@ -192,7 +198,7 @@ class PolicyModel(pomdp_py.RolloutPolicy):
     """A simple policy model with uniform prior over a
     small, finite action space"""
 
-    ACTIONS = [TigerAction(s) for s in {"open-left", "open-right", "listen"}]
+    ACTIONS = [Action(s) for s in {"open-left", "open-right", "listen"}]
 
     def sample(self, state):
         return random.sample(self.get_all_actions(), 1)[0]
@@ -235,9 +241,9 @@ class TigerProblem(pomdp_py.POMDP):
             obs_noise (float): Noise for the observation
                                model (default 0.15)
         """
-        init_true_state = TigerState(state)
+        init_true_state = State(state)
         init_belief = pomdp_py.Histogram(
-            {TigerState("tiger-left"): belief, TigerState("tiger-right"): 1.0 - belief}
+            {State("tiger-left"): belief, State("tiger-right"): 1.0 - belief}
         )
         tiger_problem = TigerProblem(obs_noise, init_true_state, init_belief)
         tiger_problem.agent.set_belief(init_belief, prior=True)
@@ -290,7 +296,7 @@ def test_planner(tiger_problem, planner, nsteps=3, debug_tree=False):
         # or coming from an external source (e.g. robot sensor
         # reading). Note that tiger_problem.env.state stores the
         # environment state after action execution.
-        real_observation = TigerObservation(tiger_problem.env.state.name)
+        real_observation = Observation(tiger_problem.env.state.name)
         print(">> Observation:", real_observation)
         tiger_problem.agent.update_history(action, real_observation)
 
@@ -322,11 +328,11 @@ def make_tiger(noise=0.15, init_state="tiger-left", init_belief=[0.5, 0.5]):
     Useful for testing"""
     tiger = TigerProblem(
         noise,
-        TigerState(init_state),
+        State(init_state),
         pomdp_py.Histogram(
             {
-                TigerState("tiger-left"): init_belief[0],
-                TigerState("tiger-right"): init_belief[1],
+                State("tiger-left"): init_belief[0],
+                State("tiger-right"): init_belief[1],
             }
         ),
     )
@@ -336,7 +342,7 @@ def make_tiger(noise=0.15, init_state="tiger-left", init_belief=[0.5, 0.5]):
 def main():
     init_true_state = random.choice(["tiger-left", "tiger-right"])
     init_belief = pomdp_py.Histogram(
-        {TigerState("tiger-left"): 0.5, TigerState("tiger-right"): 0.5}
+        {State("tiger-left"): 0.5, State("tiger-right"): 0.5}
     )
     tiger = make_tiger(init_state=init_true_state)
     init_belief = tiger.agent.belief
