@@ -1,5 +1,4 @@
-# this is an example for learning the rl-agents, ttrl_env, and gymnasium.
-# The original name for this file is intersection_social_dqn.py
+# the is the optimization based solution main file
 
 import sys
 import os

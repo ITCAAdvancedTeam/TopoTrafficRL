@@ -1,3 +1,5 @@
+# This is the self defined simulation class
+
 import datetime
 import json
 import logging
