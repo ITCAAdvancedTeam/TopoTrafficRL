@@ -154,11 +154,16 @@ class TopoMap:
 # State space: {[s,v,a,r]}
 stype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'f8'), ('field4', 'i4')]  # 'f8' is for double, 'i4' is for 32-bit int
 class State(pomdp_py.State):
-    def __init__(self, data):
+    def __init__(self, data, terminal=False):
+        """
+        data (np.array): [s,v,a,r].
+        terminal (bool): at the terminal state.
+        """
         # Ensure that `data` is in the correct structured format
         if not isinstance(data, np.ndarray) or data.dtype != np.dtype(stype):
             raise ValueError("Data must be a NumPy structured array with the dtype: stype")
         self.data = data
+        self.terminal = terminal
 
     def __hash__(self):
         # Convert to a tuple for hash calculation
@@ -391,9 +396,9 @@ class TransitionModel(pomdp_py.TransitionModel):
 # Reward Model
 class RewardModel(pomdp_py.RewardModel):
     """ TODO """
-    def __init__(self, rock_locs, in_exit_area):
-        self._rock_locs = rock_locs
-        self._in_exit_area = in_exit_area
+    def __init__(self):
+        self.speed_limit = []
+        self.acceleration_limit = []
     def sample(self, state, action, next_state, normalized=False, **kwargs):
         # deterministic
         if state.terminal:
