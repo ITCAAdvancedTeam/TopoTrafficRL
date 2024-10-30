@@ -1,11 +1,11 @@
-"""This POMDP comparison class is modified based on the classic Tiger problem.
+"""This POMDP comparison class is modified based on the rocksample problem: project_ws/venv/lib64/python3.10/site-packages/pomdp_py/problems/rocksample/rocksample_problem.py.
 
 This is a POMDP problem; Namely, it specifies both
 the POMDP (i.e. state, action, observation space)
 and the T/O/R for the agent as well as the environment.
 
-States: [s0,s1,...,sk], math:`S\subseteq[\mathbb{R},\mathbb{R},string]^(k+1)`
-Actions: [a0,a1,...,ak], math:`A\subseteq[\mathbb{R}^(k+1)`
+States: [S0,S1,...,Sk], math:`S\subseteq[\mathbb{R},\mathbb{R},\mathbb{R},\mathbb{N}]^(k+1)`
+Actions: a0, math:`A\subseteq[\mathbb{R}`
 Rewards:
     - Crush reward
     - velocity reward
@@ -22,12 +22,101 @@ import pomdp_py
 from pomdp_py.utils import TreeDebugger
 import random
 import numpy as np
+from scipy.stats import norm
 import sys
 import copy
 
+TSTEP = 0.5
 
-# State space
-stype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'U10')]  # 'f8' is for double, 'U10' is for strings up to 10 characters
+class TopoMap:
+    def __init__(self):
+        # Dictionary to map int to an array of waypoints, each being (x, y, yaw)
+        self.waypoints = {}
+        self.topology = {}  # Maps int to a list of next waypoint IDs
+
+    def add_waypoints(self, waypoint_id, points):
+        """
+        Adds a series of waypoints (each with x, y, yaw) to the map.
+
+        Args:
+            waypoint_id (int): Unique identifier for the waypoint sequence.
+            points (list of tuples): List of tuples, each containing (x, y, yaw) coordinates.
+        """
+        # Convert points to a NumPy array if it's not already
+        self.waypoints[waypoint_id] = np.array(points)
+        if waypoint_id not in self.topology:
+            self.topology[waypoint_id] = []
+
+    def add_connection(self, from_id, to_id):
+        """
+        Adds a topological connection from one waypoint sequence to another.
+
+        Args:
+            from_id (int): ID of the waypoint sequence from which the connection starts.
+            to_id (int): ID of the waypoint sequence to which the connection goes.
+        """
+        if from_id in self.waypoints and to_id in self.waypoints:
+            self.topology[from_id].append(to_id)
+        else:
+            raise ValueError("Both waypoint sequences must exist in the map to create a connection.")
+
+    def get_waypoints(self, waypoint_id):
+        """
+        Retrieves a series of waypoints for a given waypoint ID.
+
+        Args:
+            waypoint_id (int): Unique identifier for the waypoint sequence.
+
+        Returns:
+            np.ndarray: Array with shape (n, 3) where each row is (x, y, yaw), or None if not found.
+        """
+        return self.waypoints.get(waypoint_id, None)
+
+    def get_next_waypoints(self, waypoint_id):
+        """
+        Retrieves the next connected waypoint sequences for a given waypoint sequence ID.
+
+        Args:
+            waypoint_id (int): ID of the current waypoint sequence.
+
+        Returns:
+            list: List of next waypoint sequence IDs, or an empty list if none are found.
+        """
+        return self.topology.get(waypoint_id, [])
+
+    def find_waypoint_by_length(self, waypoint_id, distance_from_end):
+        """
+        Finds the waypoint at a given distance from the end of a path.
+
+        Args:
+            waypoint_id (int): ID of the waypoint sequence to search.
+            distance_from_end (float): Distance along the path from the end.
+
+        Returns:
+            np.ndarray: The (x, y, yaw) of the found waypoint, or None if waypoint_id is not found.
+        """
+        waypoints = self.waypoints.get(waypoint_id)
+        if waypoints is None:
+            return None  # Return None if waypoint_id is not found
+
+        # Calculate cumulative distance from the end
+        cumulative_distance = 0.0
+        for i in range(len(waypoints) - 1, 0, -1):
+            # Distance between consecutive waypoints
+            segment_length = np.linalg.norm(waypoints[i][:2] - waypoints[i - 1][:2])
+            cumulative_distance += segment_length
+            if cumulative_distance >= distance_from_end:
+                return waypoints[i]  # Return waypoint at this cumulative distance
+        return waypoints[0]  # Return start if distance exceeds total path length
+
+
+    def __str__(self):
+        # String representation for easy visualization
+        return f"TopoMap(waypoints={self.waypoints}, topology={self.topology})"
+
+
+# State space: {[s,v,a,r]}
+stype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'f8'), ('field4', 'i4')]  # 'f8' is for double, 'i4' is for 32-bit int
 class State(pomdp_py.State):
     def __init__(self, data):
         # Ensure that `data` is in the correct structured format
@@ -52,46 +141,46 @@ class State(pomdp_py.State):
         return f"State(data={self.data})"
 
 
-# Action space
+# Action space: a0
 class Action:
-    """The action is a vector of velocities."""
+    """The action is a single velocity value."""
 
-    def __init__(self, control):
+    def __init__(self, data):
         """
-        Initializes an action with a vector of velocities.
+        Initializes an action with a single velocity.
 
         Args:
-            control (array-like): array of velocities as doubles.
+            data (float): A single velocity as a double.
         """
-        # Convert control to a NumPy array of floats
-        self.control = np.array(control, dtype='float64')
+        # Convert data to a float
+        self.data = float(data)
 
     def __hash__(self):
-        # Convert to tuple for hashing
-        return hash(tuple(self.control))
+        # Hash directly with the float value
+        return hash(self.data)
 
     def __eq__(self, other):
         if isinstance(other, Action):
-            # Use np.array_equal for element-wise comparison
-            return np.array_equal(self.control, other.control)
+            return self.data == other.data
         return False
 
     def __str__(self):
         return self.__repr__()
 
     def __repr__(self):
-        return f"Action(control={self.control.tolist()})"
+        return f"Action(data={self.data})"
 
 
-# Observation space
-otype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'f8')]  # 'f8' for double
+
+# Observation space: {[x,y,vx,vy,a]}
+otype = [('field1', 'f8'), ('field2', 'f8'), ('field3', 'f8'), ('field3', 'f8'), ('field3', 'f8')]  # 'f8' for double
 class Observation:
     def __init__(self, data):
         """
-        Initializes an observation with a structured array of tuples (double, double, double).
+        Initializes an observation with a structured array of tuples.
 
         Args:
-            data (array-like): Array of tuples, where each tuple is (double, double, double).
+            data (array-like): Array of tuples.
         """
         # Ensure data is a structured NumPy array with the correct dtype
         self.data = np.array(data, dtype=otype)
@@ -115,35 +204,68 @@ class Observation:
 
 # Observation model
 class ObservationModel(pomdp_py.ObservationModel):
-    def __init__(self, noise=0.15):
-        self.noise = noise
+    def __init__(self, map=None, noise=0.15):
+        self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
+        self.noise = noise  # Noise parameter to control randomness in sampling
 
     def probability(self, observation, next_state, action):
-        if action.name == "listen":
-            # heard the correct growl
-            if observation.name == next_state.name:
-                return 1.0 - self.noise
+        p = []
+        k = len(observation)
+        for i in range(k):
+            # do something
+            waypoint_id = next_state[i][3]
+            point = self.map.find_waypoint_by_length(waypoint_id, next_state[i][0])
+            v_angle = np.arctan2(observation[i][3], observation[i][2])
+            f1 = (v_angle - point[2] + np.pi) % (2 * np.pi) - np.pi
+            f2 = f2 = np.linalg.norm(np.array(observation[i][:2]) - point[:2])
+            p1 = norm.pdf(f1, loc=0, scale=0.8)
+            p2 = norm.pdf(f2, loc=0, scale=4.0)
+            p.append(p1 * p2)
+        p = np.array(p)
+        pa = np.exp(np.sum(np.log(p)))
+        pb = norm.pdf(observation[0][4] - action.data, loc=0, scale=1.0)
+        return pa * pb
+
+    def sample(self, next_state, action, argmax=False):
+        data = []
+        k = len(next_state)
+        for i in range(k):
+            # Assuming `waypoint_id` is stored in `next_state[i][3]`
+            waypoint_id = next_state[i][3]
+
+            # Assuming `distance_from_end` is stored in `next_state[i][0]`
+            distance_from_end = next_state[i][0]
+
+            # Find the waypoint based on the given distance from the end
+            waypoint = self.map.find_waypoint_by_length(waypoint_id, distance_from_end)
+
+            # Return an empty observation if the waypoint does not exist
+            if waypoint is None:
+                return Observation([])
+
+            x, y, yaw = waypoint
+            # Determine velocity magnitude: use `action.data` if `i == 0`, else use `next_state[i][2]`
+            v_magnitude = action.data if i == 0 else next_state[i][2]
+
+            # Calculate the velocity components based on yaw
+            vx = v_magnitude * np.cos(yaw)  # X-component of velocity
+            vy = v_magnitude * np.sin(yaw)  # Y-component of velocity
+
+            # Calculate acceleration with some random noise around `next_state[i][2]`
+            if argmax:
+                acceleration = next_state[i][2]
             else:
-                return self.noise
-        else:
-            return 0.5
+                acceleration = norm.rvs(loc=next_state[i][2], scale=0.1)
 
-    def sample(self, next_state, action):
-        if action.name == "listen":
-            thresh = 1.0 - self.noise
-        else:
-            thresh = 0.5
+            # Append the (x, y, vx, vy, acceleration) tuple to the data list
+            data.append((x, y, vx, vy, acceleration))
 
-        if random.uniform(0, 1) < thresh:
-            return Observation(next_state.name)
-        else:
-            return Observation(next_state.other().name)
+        data = np.array(data)
+        return Observation(data)
 
-    def get_all_observations(self):
-        """Only need to implement this if you're using
-        a solver that needs to enumerate over the observation space
-        (e.g. value iteration)"""
-        return [Observation(s) for s in {"tiger-left", "tiger-right"}]
+    def argmax(self, next_state, action):
+        """Returns the most likely observation"""
+        return self.sample(next_state, action, argmax=True)
 
 
 # Transition Model
