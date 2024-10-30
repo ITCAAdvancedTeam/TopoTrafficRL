@@ -27,12 +27,17 @@ import sys
 import copy
 
 TSTEP = 0.5
+DSAFE = 3.0
 
 class TopoMap:
+    """
+    Map consist of waypoints, each waypoint is a section of lane in the intersection area
+    There is no conflicting point inside a waypoint
+    """
     def __init__(self):
-        # Dictionary to map int to an array of waypoints, each being (x, y, yaw)
-        self.waypoints = {}
-        self.topology = {}  # Maps int to a list of next waypoint IDs
+        self.waypoints = {} # Dictionary to map int to an array of waypoints, each being (x, y, yaw)
+        self.topology = {}  # Dictionary to map int to a list of next waypoint IDs
+        self.conflict = {}  # Dictionary to map int to int
 
     def add_waypoints(self, waypoint_id, points):
         """
@@ -59,6 +64,16 @@ class TopoMap:
             self.topology[from_id].append(to_id)
         else:
             raise ValueError("Both waypoint sequences must exist in the map to create a connection.")
+    def add_confliction(self, conflict_id1, conflict_id2):
+        """
+        Adds a confliction between two waypoints.
+
+        Args:
+            conflict_id1 (int): ID of the waypoint sequence.
+            conflict_id2 (int): ID of the waypoint sequence.
+        """
+        self.conflict[conflict_id1] = conflict_id2
+        self.conflict[conflict_id2] = conflict_id1
 
     def get_waypoints(self, waypoint_id):
         """
@@ -109,6 +124,27 @@ class TopoMap:
                 return waypoints[i]  # Return waypoint at this cumulative distance
         return waypoints[0]  # Return start if distance exceeds total path length
 
+    def find_length_by_waypoint(self, waypoint_id):
+        """
+        Finds the total length of a waypoint path defined by waypoint_id.
+
+        Args:
+            waypoint_id (int): ID of the waypoint sequence to search.
+
+        Returns:
+            float: Total path length. Returns 0 if waypoint_id not found or has fewer than 2 points.
+        """
+        waypoints = self.waypoints.get(waypoint_id)
+        if waypoints is None or len(waypoints) < 2:
+            return 0.0  # Return 0 if no waypoints are found or there aren't enough points to measure length
+
+        length = 0.0
+        for i in range(1, len(waypoints)):
+            # Calculate the Euclidean distance between consecutive waypoints
+            segment_length = np.linalg.norm(waypoints[i][:2] - waypoints[i - 1][:2])
+            length += segment_length
+
+        return length
 
     def __str__(self):
         # String representation for easy visualization
@@ -212,29 +248,28 @@ class ObservationModel(pomdp_py.ObservationModel):
         p = []
         k = len(observation)
         for i in range(k):
-            # do something
-            waypoint_id = next_state[i][3]
-            point = self.map.find_waypoint_by_length(waypoint_id, next_state[i][0])
-            v_angle = np.arctan2(observation[i][3], observation[i][2])
+            waypoint_id = next_state.data[i][3]
+            point = self.map.find_waypoint_by_length(waypoint_id, next_state.data[i][0])
+            v_angle = np.arctan2(observation.data[i][3], observation.data[i][2])
             f1 = (v_angle - point[2] + np.pi) % (2 * np.pi) - np.pi
-            f2 = f2 = np.linalg.norm(np.array(observation[i][:2]) - point[:2])
+            f2 = f2 = np.linalg.norm(np.array(observation.data[i][:2]) - point[:2])
             p1 = norm.pdf(f1, loc=0, scale=0.8)
             p2 = norm.pdf(f2, loc=0, scale=4.0)
             p.append(p1 * p2)
         p = np.array(p)
         pa = np.exp(np.sum(np.log(p)))
-        pb = norm.pdf(observation[0][4] - action.data, loc=0, scale=1.0)
+        pb = norm.pdf(observation.data[0][4] - action.data, loc=0, scale=1.0)
         return pa * pb
 
     def sample(self, next_state, action, argmax=False):
         data = []
-        k = len(next_state)
+        k = len(next_state.data)
         for i in range(k):
             # Assuming `waypoint_id` is stored in `next_state[i][3]`
-            waypoint_id = next_state[i][3]
+            waypoint_id = next_state.data[i][3]
 
             # Assuming `distance_from_end` is stored in `next_state[i][0]`
-            distance_from_end = next_state[i][0]
+            distance_from_end = next_state.data[i][0]
 
             # Find the waypoint based on the given distance from the end
             waypoint = self.map.find_waypoint_by_length(waypoint_id, distance_from_end)
@@ -245,7 +280,7 @@ class ObservationModel(pomdp_py.ObservationModel):
 
             x, y, yaw = waypoint
             # Determine velocity magnitude: use `action.data` if `i == 0`, else use `next_state[i][2]`
-            v_magnitude = action.data if i == 0 else next_state[i][2]
+            v_magnitude = action.data if i == 0 else next_state.data[i][2]
 
             # Calculate the velocity components based on yaw
             vx = v_magnitude * np.cos(yaw)  # X-component of velocity
@@ -253,9 +288,9 @@ class ObservationModel(pomdp_py.ObservationModel):
 
             # Calculate acceleration with some random noise around `next_state[i][2]`
             if argmax:
-                acceleration = next_state[i][2]
+                acceleration = next_state.data[i][2]
             else:
-                acceleration = norm.rvs(loc=next_state[i][2], scale=0.1)
+                acceleration = norm.rvs(loc=next_state.data[i][2], scale=0.1)
 
             # Append the (x, y, vx, vy, acceleration) tuple to the data list
             data.append((x, y, vx, vy, acceleration))
@@ -270,32 +305,85 @@ class ObservationModel(pomdp_py.ObservationModel):
 
 # Transition Model
 class TransitionModel(pomdp_py.TransitionModel):
+    def __init__(self, map=None):
+        self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
+
     def probability(self, next_state, state, action):
-        """According to problem spec, the world resets once
-        action is open-left/open-right. Otherwise, stays the same"""
-        if action.name.startswith("open"):
-            return 0.5
-        else:
-            if next_state.name == state.name:
-                return 1.0 - 1e-9
+        """probability of conflicting vehicle's reaction toward ego"""
+        # ego
+        pa = norm.pdf(state.data[0][2] - next_state.data[0][2], loc=0, scale=1.0)
+
+        # confliction
+        p = []
+        k = len(state)
+        ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
+        TTC = []
+        for id in ego_list:
+            len_to_end = state.data[0][0] if id == state.data[0][3] else state.data[0][0] + self.map.find_length_by_waypoint(id)
+            if action.data == 0:
+                ttc = len_to_end / state.data[0][1]
             else:
-                return 1e-9
+                ttc = (np.sqrt(2 * action.data * len_to_end + state.data[0][1]**2) - state.data[0][1]) / action.data
+            # deal with the case the vehicle decc to zero
+            if state.data[0][1] + action.data * ttc < 0.0:
+                ttc = float('inf')  # Set TTC to infinity if velocity is zero
+            TTC.append((id, ttc))
+
+        for i in range(1, k):
+            conflict_waypoint_id = self.map.conflict.get(state.data[i][3])
+             # Check if there is a conflict and it exists in ego_list
+            if conflict_waypoint_id in ego_list:
+                # Find corresponding TTC for the conflict waypoint in ego's TTC list
+                ego_ttc = next((ttc for waypoint_id, ttc in TTC if waypoint_id == conflict_waypoint_id), None)
+
+                # If TTC is not found, skip this conflict
+                if ego_ttc is None:
+                    continue
+
+                 # Calculate TTC for the conflicting vehicle
+                conflict_len_to_end = state.data[i][0]
+                conflict_acc = state.data[i][2]
+                # Estimate a TTC for the conflicting vehicle
+                if conflict_acc == 0:
+                    conflict_ttc = conflict_len_to_end / state.data[i][1]
+                else:
+                    conflict_ttc = (np.sqrt(2 * conflict_acc * conflict_len_to_end + state.data[i][1]**2) - state.data[i][1]) / conflict_acc
+                # deal with the case the vehicle decc to zero
+                if state.data[0][1] + action.data * ttc < 0.0:
+                    ttc = float('inf')  # Set TTC to infinity if velocity is zero
+                # Calculate probability based on TTC difference
+                ttc_diff = np.abs(ego_ttc - conflict_ttc)
+                # Calculate probability based on TTC difference, handling inf case
+                if np.isinf(ego_ttc) or np.isinf(conflict_ttc):
+                    p_i = 1.0  # No imminent collision, set p_i to 1
+                else:
+                    ttc_diff = np.abs(ego_ttc - conflict_ttc)
+                    p_i = norm.pdf(ttc_diff, loc=0, scale=2.0)
+                p.append(p_i)
+
+        p = np.array(p)
+        pb = np.exp(np.sum(np.log(p)))
+        return pa * pb
 
     def sample(self, state, action):
-        if action.name.startswith("open"):
-            return random.choice(self.get_all_states())
-        else:
-            return State(state.name)
+        next_state = []
+        k = len(state)
+        for i in range(k):
+            # TODO: sampling
+            # Create the data tuple according to stype
+            data = (new_s, new_v, new_a, new_r)
+            next_state.append(data)
+        next_state = np.array(next_state, dtype=stype)
+        return State(next_state)
 
-    def get_all_states(self):
-        """Only need to implement this if you're using
-        a solver that needs to enumerate over the observation space (e.g. value iteration)
-        """
-        return [State(s) for s in {"tiger-left", "tiger-right"}]
+    def argmax(self, state, action):
+        """Returns the most likely next state"""
+        return self.sample(state, action)
 
 
 # Reward Model
 class RewardModel(pomdp_py.RewardModel):
+    """ TODO """
     def _reward_func(self, state, action):
         if action.name == "open-left":
             if state.name == "tiger-right":
