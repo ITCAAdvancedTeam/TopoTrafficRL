@@ -369,8 +369,15 @@ class TransitionModel(pomdp_py.TransitionModel):
         next_state = []
         k = len(state)
         for i in range(k):
-            # TODO: sampling
             # Create the data tuple according to stype
+            new_s = state.data[i][0] - state.data[i][1] * TSTEP
+            if new_s < 0.0:
+                new_r = random.choice(self.map.get_next_waypoints(state.data[i][3]))
+                new_s = self.map.find_length_by_waypoint(new_r) + new_s
+            else:
+                new_r = state.data[i][3]
+            new_v = state.data[i][1] + state.data[i][2] * TSTEP
+            new_a = state.data[i][2]
             data = (new_s, new_v, new_a, new_r)
             next_state.append(data)
         next_state = np.array(next_state, dtype=stype)
@@ -384,23 +391,28 @@ class TransitionModel(pomdp_py.TransitionModel):
 # Reward Model
 class RewardModel(pomdp_py.RewardModel):
     """ TODO """
-    def _reward_func(self, state, action):
-        if action.name == "open-left":
-            if state.name == "tiger-right":
-                return 10
-            else:
-                return -100
-        elif action.name == "open-right":
-            if state.name == "tiger-left":
-                return 10
-            else:
-                return -100
-        else:  # listen
-            return -1
-
-    def sample(self, state, action, next_state):
+    def __init__(self, rock_locs, in_exit_area):
+        self._rock_locs = rock_locs
+        self._in_exit_area = in_exit_area
+    def sample(self, state, action, next_state, normalized=False, **kwargs):
         # deterministic
-        return self._reward_func(state, action)
+        if state.terminal:
+            return 0  # terminated. No reward
+        if isinstance(action, SampleAction):
+            # need to check the rocktype in `state` because it has turned bad in `next_state`
+            if state.position in self._rock_locs:
+                if state.rocktypes[self._rock_locs[state.position]] == RockType.GOOD:
+                    return 10
+                else:
+                    # No rock or bad rock
+                    return -10
+            else:
+                return 0  # problem didn't specify penalty for sampling empty space.
+
+        elif isinstance(action, MoveAction):
+            if self._in_exit_area(next_state.position):
+                return 10
+        return 0
 
 
 # Policy Model
