@@ -26,8 +26,7 @@ from scipy.stats import norm
 import sys
 import copy
 
-TSTEP = 0.5
-DSAFE = 3.0
+TSTEP = 0.1
 
 class TopoMap:
     """
@@ -396,28 +395,29 @@ class TransitionModel(pomdp_py.TransitionModel):
 # Reward Model
 class RewardModel(pomdp_py.RewardModel):
     """ TODO """
-    def __init__(self):
-        self.speed_limit = []
-        self.acceleration_limit = []
-    def sample(self, state, action, next_state, normalized=False, **kwargs):
+    def __init__(self, map=None):
+        self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
+        self.d_safe = 3.0
+        self.speed_limit = [4.0, 12.0]
+        self.acceleration_limit = [-2.0, 2.0]
+        self.K1 = 10.0 # collision reward
+        self.K2 = 2.0 # velocity reward
+        self.K3 = 4.0 # acceleration reward
+    def sample(self, state, action, next_state):
         # deterministic
         if state.terminal:
             return 0  # terminated. No reward
-        if isinstance(action, SampleAction):
-            # need to check the rocktype in `state` because it has turned bad in `next_state`
-            if state.position in self._rock_locs:
-                if state.rocktypes[self._rock_locs[state.position]] == RockType.GOOD:
-                    return 10
-                else:
-                    # No rock or bad rock
-                    return -10
-            else:
-                return 0  # problem didn't specify penalty for sampling empty space.
-
-        elif isinstance(action, MoveAction):
-            if self._in_exit_area(next_state.position):
-                return 10
-        return 0
+        R1 = []
+        R2 = []
+        R3 = []
+        k = len(state)
+        ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
+        for i in range(1, k):
+            conflict_waypoint_id = self.map.conflict.get(state.data[i][3])
+             # Check if there is a conflict and it exists in ego_list
+            if conflict_waypoint_id in ego_list:
+                 
+            
 
 
 # Policy Model
