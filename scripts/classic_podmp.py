@@ -244,6 +244,29 @@ class Observation:
 
 # Observation model
 class ObservationModel(pomdp_py.ObservationModel):
+    """
+    The ObservationModel class defines the observation dynamics of a POMDP, determining 
+    how likely a particular observation is given the current state and an action. It also 
+    generates observations from the next state for simulation purposes.
+
+    Attributes:
+        map (TopoMap): The map used for finding waypoints and paths for observations.
+        noise (float): Noise parameter to introduce randomness in the observation sampling.
+
+    Methods:
+        probability(observation, next_state, action):
+            Computes the probability of observing `observation` given `next_state` and `action`.
+            The probability considers the angular difference and distance between the observation 
+            and the next state's corresponding waypoint.
+
+        sample(next_state, action, argmax=False):
+            Generates a sample observation based on `next_state` and `action`. If `argmax` is 
+            True, the most likely observation is returned without added noise.
+
+        argmax(next_state, action):
+            Returns the most likely observation for a given `next_state` and `action` by 
+            calling `sample` with `argmax=True`.
+    """
     def __init__(self, map=None, noise=0.15):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
         self.noise = noise  # Noise parameter to control randomness in sampling
@@ -309,6 +332,31 @@ class ObservationModel(pomdp_py.ObservationModel):
 
 # Transition Model
 class TransitionModel(pomdp_py.TransitionModel):
+    """
+    The TransitionModel class defines the transition dynamics of a POMDP, describing 
+    how the state evolves given an action. This model determines the probability of 
+    transitioning from the current state to a next state based on the ego vehicle's 
+    behavior and potential conflicts with other vehicles.
+
+    Attributes:
+        map (TopoMap): The map used to retrieve waypoints, paths, and distances.
+
+    Methods:
+        probability(next_state, state, action):
+            Calculates the probability of transitioning from `state` to `next_state` 
+            given an `action`. The probability considers the ego vehicle's change in 
+            velocity and potential conflicts with other vehicles based on Time-To-Collision (TTC).
+
+        sample(state, action):
+            Generates a sample of the next state from the current `state` when an 
+            `action` is applied. The next state is computed using kinematic equations 
+            and path updates for each vehicle.
+
+        argmax(state, action):
+            Returns the most likely `next_state` based on the given `state` and `action`.
+            This method currently returns a sample state that represents the most probable 
+            outcome according to the defined transition dynamics.
+    """
     def __init__(self, map=None):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
 
@@ -394,7 +442,20 @@ class TransitionModel(pomdp_py.TransitionModel):
 
 # Reward Model
 class RewardModel(pomdp_py.RewardModel):
-    """ TODO """
+    """
+    The RewardModel class calculates the reward for transitioning from a given state
+    to a next state when an action is taken. The reward considers various factors
+    such as collision risk, speed alignment, and comfort (acceleration).
+
+    Attributes:
+        map (TopoMap): The map used to find waypoints and assess distances.
+        d_safe (float): The safe distance threshold for collision risk.
+        speed_limit (list of float): The minimum and maximum speed limits.
+        acceleration_limit (list of float): The allowable acceleration range.
+        K1 (float): The weight for the collision risk reward.
+        K2 (float): The weight for the velocity alignment reward.
+        K3 (float): The weight for the acceleration comfort reward.
+    """
     def __init__(self, map=None):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
         self.d_safe = 3.0
@@ -435,7 +496,7 @@ class PolicyModel(pomdp_py.RolloutPolicy):
     ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
 
     def sample(self, state):
-        action_probabilities = self._calculate_action_probabilities()
+        action_probabilities = self._calculate_action_probabilities(state)
         # Select an action based on these weighted probabilities
         chosen_action = np.random.choice(self.ACTIONS, p=action_probabilities)
         return chosen_action
@@ -443,17 +504,23 @@ class PolicyModel(pomdp_py.RolloutPolicy):
     def _calculate_action_probabilities(self, state):
         """
         Calculates the probabilities for actions that favor:
-        1. Keeping speed (v) close to 0.
+        1. Keeping speed (v) close to 8.
         2. Ensuring comfort (small acceleration/deceleration).
 
         Returns:
             A list of probabilities for each action in ACTIONS.
         """
-        # Assign weights inversely proportional to the absolute value of actions
-        action_weights = np.array([1 / (1 + abs(action.data)) for action in self.ACTIONS])
+        v0 = state.data[0][1]
+        a0 = state.data[0][2]
+        av = np.clip((8.0 - v0) / (10 * TSTEP), -2, 2)
+        action_probabilities = []
+        for action in self.ACTIONS:
+            p1 = norm.pdf(action, loc=a0, scale=2.0)
+            p2 = norm.pdf(action, loc=av, scale=4.0)
+            action_probabilities.append(p1 + p2)
 
         # Normalize to create a probability distribution
-        action_probabilities = action_weights / np.sum(action_weights)
+        action_probabilities = np.array(action_probabilities)
         return action_probabilities
 
     def rollout(self, state, history=None):
@@ -464,9 +531,10 @@ class PolicyModel(pomdp_py.RolloutPolicy):
         return PolicyModel.ACTIONS
 
 
-class TigerProblem(pomdp_py.POMDP):
+# Problem definition
+class XingProblem(pomdp_py.POMDP):
     """
-    In fact, creating a TigerProblem class is entirely optional
+    In fact, creating a XingProblem class is entirely optional
     to simulate and solve POMDPs. But this is just an example
     of how such a class can be created.
     """
@@ -481,7 +549,7 @@ class TigerProblem(pomdp_py.POMDP):
             RewardModel(),
         )
         env = pomdp_py.Environment(init_true_state, TransitionModel(), RewardModel())
-        super().__init__(agent, env, name="TigerProblem")
+        super().__init__(agent, env, name="XingProblem")
 
     @staticmethod
     def create(state="tiger-left", belief=0.5, obs_noise=0.15):
@@ -498,7 +566,7 @@ class TigerProblem(pomdp_py.POMDP):
         init_belief = pomdp_py.Histogram(
             {State("tiger-left"): belief, State("tiger-right"): 1.0 - belief}
         )
-        tiger_problem = TigerProblem(obs_noise, init_true_state, init_belief)
+        tiger_problem = XingProblem(obs_noise, init_true_state, init_belief)
         tiger_problem.agent.set_belief(init_belief, prior=True)
         return tiger_problem
 
@@ -508,7 +576,7 @@ def test_planner(tiger_problem, planner, nsteps=3, debug_tree=False):
     Runs the action-feedback loop of Tiger problem POMDP
 
     Args:
-        tiger_problem (TigerProblem): a problem instance
+        tiger_problem (XingProblem): a problem instance
         planner (Planner): a planner
         nsteps (int): Maximum number of steps to run this loop.
         debug_tree (bool): True if get into the pdb with a
@@ -579,7 +647,7 @@ def test_planner(tiger_problem, planner, nsteps=3, debug_tree=False):
 def make_tiger(noise=0.15, init_state="tiger-left", init_belief=[0.5, 0.5]):
     """Convenient function to quickly build a tiger domain.
     Useful for testing"""
-    tiger = TigerProblem(
+    tiger = XingProblem(
         noise,
         State(init_state),
         pomdp_py.Histogram(
