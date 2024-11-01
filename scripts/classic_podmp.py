@@ -491,7 +491,7 @@ class RewardModel(pomdp_py.RewardModel):
 
 # Policy Model
 class PolicyModel(pomdp_py.RolloutPolicy):
-    """TODO: The policy should favor 1. keep speed (v) 2. comfort (a)"""
+    """The policy should favor 1. keep speed (v) 2. comfort (a)"""
 
     ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
 
@@ -539,16 +539,16 @@ class XingProblem(pomdp_py.POMDP):
     of how such a class can be created.
     """
 
-    def __init__(self, obs_noise, init_true_state, init_belief):
+    def __init__(self, obs_noise, init_true_state, init_belief, map):
         """init_belief is a Distribution."""
         agent = pomdp_py.Agent(
             init_belief,
             PolicyModel(),
-            TransitionModel(),
-            ObservationModel(obs_noise),
-            RewardModel(),
+            TransitionModel(map=map),
+            ObservationModel(map=map, noise=obs_noise),
+            RewardModel(map=map),
         )
-        env = pomdp_py.Environment(init_true_state, TransitionModel(), RewardModel())
+        env = pomdp_py.Environment(init_true_state, TransitionModel(map=map), RewardModel(map=map))
         super().__init__(agent, env, name="XingProblem")
 
     @staticmethod
