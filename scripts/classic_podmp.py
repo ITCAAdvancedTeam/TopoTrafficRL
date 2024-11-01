@@ -250,7 +250,7 @@ class ObservationModel(pomdp_py.ObservationModel):
 
     def probability(self, observation, next_state, action):
         p = []
-        k = len(observation)
+        k = len(observation.data)
         for i in range(k):
             waypoint_id = next_state.data[i][3]
             point = self.map.find_waypoint_by_length(waypoint_id, next_state.data[i][0])
@@ -319,7 +319,7 @@ class TransitionModel(pomdp_py.TransitionModel):
 
         # confliction
         p = []
-        k = len(state)
+        k = len(state.data)
         ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
         TTC = []
         for id in ego_list:
@@ -371,7 +371,7 @@ class TransitionModel(pomdp_py.TransitionModel):
 
     def sample(self, state, action):
         next_state = []
-        k = len(state)
+        k = len(state.data)
         for i in range(k):
             # Create the data tuple according to stype
             new_s = state.data[i][0] - state.data[i][1] * TSTEP
@@ -400,35 +400,61 @@ class RewardModel(pomdp_py.RewardModel):
         self.d_safe = 3.0
         self.speed_limit = [4.0, 12.0]
         self.acceleration_limit = [-2.0, 2.0]
-        self.K1 = 10.0 # collision reward
-        self.K2 = 2.0 # velocity reward
-        self.K3 = 4.0 # acceleration reward
+        self.K1 = 20.0 # collision reward
+        self.K2 = 10.0 # velocity reward
+        self.K3 = 10.0 # acceleration reward
     def sample(self, state, action, next_state):
         # deterministic
         if state.terminal:
             return 0  # terminated. No reward
-        R1 = []
-        R2 = []
-        R3 = []
-        k = len(state)
+        R1 = [1]
+        R2 = [norm.pdf(state.data[0][1] + action.data * TSTEP, loc=8.0, scale=4.0)]
+        R3 = [norm.pdf(action.data, loc=0.0, scale=2.0)]
+        k = len(state.data)
+        ego_point = self.map.find_waypoint_by_length(state.data[0][3], state.data[0][0])
         ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
         for i in range(1, k):
             conflict_waypoint_id = self.map.conflict.get(state.data[i][3])
              # Check if there is a conflict and it exists in ego_list
             if conflict_waypoint_id in ego_list:
-                 
-            
+                pointi = self.map.find_waypoint_by_length(state.data[i][3], state.data[0][0])
+                di = np.linalg.norm(ego_point[:2] - pointi[:2])
+                r1 = 1 / (1 + np.exp(2 * (self.d_safe - di))) - 0.5
+                r2 = norm.pdf(state.data[i][1], loc=8.0, scale=4.0)
+                r3 = norm.pdf(state.data[i][1], loc=0.0, scale=2.0)
+                R1.append(r1)
+                R2.append(r2)
+                R3.append(r3)
+        return self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
 
 
 # Policy Model
 class PolicyModel(pomdp_py.RolloutPolicy):
-    """A simple policy model with uniform prior over a
-    small, finite action space"""
+    """TODO: The policy should favor 1. keep speed (v) 2. comfort (a)"""
 
-    ACTIONS = [Action(s) for s in {"open-left", "open-right", "listen"}]
+    ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
 
     def sample(self, state):
-        return random.sample(self.get_all_actions(), 1)[0]
+        action_probabilities = self._calculate_action_probabilities()
+        # Select an action based on these weighted probabilities
+        chosen_action = np.random.choice(self.ACTIONS, p=action_probabilities)
+        return chosen_action
+
+    def _calculate_action_probabilities(self, state):
+        """
+        Calculates the probabilities for actions that favor:
+        1. Keeping speed (v) close to 0.
+        2. Ensuring comfort (small acceleration/deceleration).
+
+        Returns:
+            A list of probabilities for each action in ACTIONS.
+        """
+        # Assign weights inversely proportional to the absolute value of actions
+        action_weights = np.array([1 / (1 + abs(action.data)) for action in self.ACTIONS])
+
+        # Normalize to create a probability distribution
+        action_probabilities = action_weights / np.sum(action_weights)
+        return action_probabilities
 
     def rollout(self, state, history=None):
         """Treating this PolicyModel as a rollout policy"""
