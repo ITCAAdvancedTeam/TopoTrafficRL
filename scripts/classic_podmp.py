@@ -532,11 +532,12 @@ class PolicyModel(pomdp_py.RolloutPolicy):
 
 
 # Problem definition
-class XingProblem(pomdp_py.POMDP):
+class IntersectionProblem(pomdp_py.POMDP):
     """
-    In fact, creating a XingProblem class is entirely optional
+    In fact, creating a IntersectionProblem class is entirely optional
     to simulate and solve POMDPs. But this is just an example
     of how such a class can be created.
+    TODO: compare with rocksample problem class and complete this!
     """
 
     def __init__(self, obs_noise, init_true_state, init_belief, map):
@@ -549,147 +550,78 @@ class XingProblem(pomdp_py.POMDP):
             RewardModel(map=map),
         )
         env = pomdp_py.Environment(init_true_state, TransitionModel(map=map), RewardModel(map=map))
-        super().__init__(agent, env, name="XingProblem")
-
-    @staticmethod
-    def create(state="tiger-left", belief=0.5, obs_noise=0.15):
-        """
-        Args:
-            state (str): could be 'tiger-left' or 'tiger-right';
-                         True state of the environment
-            belief (float): Initial belief that the target is
-                            on the left; Between 0-1.
-            obs_noise (float): Noise for the observation
-                               model (default 0.15)
-        """
-        init_true_state = State(state)
-        init_belief = pomdp_py.Histogram(
-            {State("tiger-left"): belief, State("tiger-right"): 1.0 - belief}
-        )
-        tiger_problem = XingProblem(obs_noise, init_true_state, init_belief)
-        tiger_problem.agent.set_belief(init_belief, prior=True)
-        return tiger_problem
+        super().__init__(agent, env, name="IntersectionProblem")
 
 
-def test_planner(tiger_problem, planner, nsteps=3, debug_tree=False):
-    """
-    Runs the action-feedback loop of Tiger problem POMDP
-
-    Args:
-        tiger_problem (XingProblem): a problem instance
-        planner (Planner): a planner
-        nsteps (int): Maximum number of steps to run this loop.
-        debug_tree (bool): True if get into the pdb with a
-                           TreeDebugger created as 'dd' variable.
-    """
+def test_planner(intersection_problem, planner, nsteps=3, discount=0.95):
+    gamma = 1.0
+    total_reward = 0
+    total_discounted_reward = 0
     for i in range(nsteps):
-        action = planner.plan(tiger_problem.agent)
-        if debug_tree:
-            from pomdp_py.utils import TreeDebugger
-
         print("==== Step %d ====" % (i + 1))
-        print(f"True state: {tiger_problem.env.state}")
-        print(f"Belief: {tiger_problem.agent.cur_belief}")
-        print(f"Action: {action}")
-        # There is no state transition for the tiger domain.
-        # In general, the ennvironment state can be transitioned
-        # using
-        #
-        #   reward = tiger_problem.env.state_transition(action, execute=True)
-        #
-        # Or, it is possible that you don't have control
-        # over the environment change (e.g. robot acting
-        # in real world); In that case, you could skip
-        # the state transition and re-estimate the state
-        # (e.g. through the perception stack on the robot).
-        reward = tiger_problem.env.reward_model.sample(
-            tiger_problem.env.state, action, None
+        action = planner.plan(intersection_problem.agent)
+        # pomdp_py.visual.visualize_pouct_search_tree(intersection_problem.agent.tree,
+        #                                             max_depth=5, anonymize=False)
+
+        true_state = copy.deepcopy(intersection_problem.env.state)
+        env_reward = intersection_problem.env.state_transition(action, execute=True)
+        true_next_state = copy.deepcopy(intersection_problem.env.state)
+
+        real_observation = intersection_problem.env.provide_observation(
+            intersection_problem.agent.observation_model, action
         )
-        print("Reward:", reward)
-
-        # Let's create some simulated real observation;
-        # Here, we use observation based on true state for sanity
-        # checking solver behavior. In general, this observation
-        # should be sampled from agent's observation model, as
-        #
-        #    real_observation = tiger_problem.agent.observation_model.sample(tiger_problem.env.state, action)
-        #
-        # or coming from an external source (e.g. robot sensor
-        # reading). Note that tiger_problem.env.state stores the
-        # environment state after action execution.
-        real_observation = Observation(tiger_problem.env.state.name)
-        print(">> Observation:", real_observation)
-        tiger_problem.agent.update_history(action, real_observation)
-
-        # Update the belief. If the planner is POMCP, planner.update
-        # also automatically updates agent belief.
-        planner.update(tiger_problem.agent, action, real_observation)
+        intersection_problem.agent.update_history(action, real_observation)
+        planner.update(intersection_problem.agent, action, real_observation)
+        total_reward += env_reward
+        total_discounted_reward += env_reward * gamma
+        gamma *= discount
+        print("True state: %s" % true_state)
+        print("Action: %s" % str(action))
+        print("Observation: %s" % str(real_observation))
+        print("Reward: %s" % str(env_reward))
+        print("Reward (Cumulative): %s" % str(total_reward))
+        print("Reward (Cumulative Discounted): %s" % str(total_discounted_reward))
         if isinstance(planner, pomdp_py.POUCT):
-            print("Num sims:", planner.last_num_sims)
-            print("Plan time: %.5f" % planner.last_planning_time)
+            print("__num_sims__: %d" % planner.last_num_sims)
+            print("__plan_time__: %.5f" % planner.last_planning_time)
+        if isinstance(planner, pomdp_py.PORollout):
+            print("__best_reward__: %d" % planner.last_best_reward)
+        print("World:")
+        intersection_problem.print_state()
 
-        if isinstance(tiger_problem.agent.cur_belief, pomdp_py.Histogram):
-            new_belief = pomdp_py.update_histogram_belief(
-                tiger_problem.agent.cur_belief,
-                action,
-                real_observation,
-                tiger_problem.agent.observation_model,
-                tiger_problem.agent.transition_model,
-            )
-            tiger_problem.agent.set_belief(new_belief)
-
-        if action.name.startswith("open"):
-            # Make it clearer to see what actions are taken
-            # until every time door is opened.
-            print("\n")
+        if intersection_problem.in_exit_area(intersection_problem.env.state.position):
+            break
+    return total_reward, total_discounted_reward
 
 
-def make_tiger(noise=0.15, init_state="tiger-left", init_belief=[0.5, 0.5]):
-    """Convenient function to quickly build a tiger domain.
-    Useful for testing"""
-    tiger = XingProblem(
-        noise,
-        State(init_state),
-        pomdp_py.Histogram(
-            {
-                State("tiger-left"): init_belief[0],
-                State("tiger-right"): init_belief[1],
-            }
-        ),
-    )
-    return tiger
+def init_particles_belief(k, num_particles, init_state, belief="uniform"):
+    """ TODO """
+    num_particles = 200
+    particles = []
+    for _ in range(num_particles):
+        if belief == "uniform":
+            rocktypes = []
+            for i in range(k):
+                rocktypes.append(RockType.random())
+            rocktypes = tuple(rocktypes)
+        elif belief == "groundtruth":
+            rocktypes = copy.deepcopy(init_state.rocktypes)
+        particles.append(State(init_state.position, rocktypes, False))
+    init_belief = pomdp_py.Particles(particles)
+    return init_belief
 
 
 def main():
-    init_true_state = random.choice(["tiger-left", "tiger-right"])
-    init_belief = pomdp_py.Histogram(
-        {State("tiger-left"): 0.5, State("tiger-right"): 0.5}
-    )
-    tiger = make_tiger(init_state=init_true_state)
-    init_belief = tiger.agent.belief
+    # TODO: create a init_belief and init_true_state
+    init_true_state = # TODO
+    init_belief = init_particles_belief(num_particles=200, init_state=init_true_state) # TODO
+    obs_noise = 0.15
+    map = # TODO
 
-    print("** Testing value iteration **")
-    vi = pomdp_py.ValueIteration(horizon=3, discount_factor=0.95)
-    test_planner(tiger, vi, nsteps=3)
-
-    print("\n** Testing POUCT **")
-    pouct = pomdp_py.POUCT(
-        max_depth=3,
-        discount_factor=0.95,
-        num_sims=4096,
-        exploration_const=50,
-        rollout_policy=tiger.agent.policy_model,
-        show_progress=True,
-    )
-    test_planner(tiger, pouct, nsteps=10)
-    TreeDebugger(tiger.agent.tree).pp
-
-    # Reset agent belief
-    tiger.agent.set_belief(init_belief, prior=True)
-    tiger.agent.tree = None
+    problem = IntersectionProblem(obs_noise, init_true_state, init_belief, map)
 
     print("** Testing POMCP **")
-    tiger.agent.set_belief(
+    problem.agent.set_belief(
         pomdp_py.Particles.from_histogram(init_belief, num_particles=100), prior=True
     )
     pomcp = pomdp_py.POMCP(
@@ -697,12 +629,11 @@ def main():
         discount_factor=0.95,
         num_sims=1000,
         exploration_const=50,
-        rollout_policy=tiger.agent.policy_model,
+        rollout_policy=problem.agent.policy_model,
         show_progress=True,
         pbar_update_interval=500,
     )
-    test_planner(tiger, pomcp, nsteps=10)
-    TreeDebugger(tiger.agent.tree).pp
+    tt, ttd = test_planner(problem, pomcp, nsteps=100, discount=0.95)
 
 
 if __name__ == "__main__":
