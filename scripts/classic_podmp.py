@@ -182,7 +182,7 @@ class State(pomdp_py.State):
 
 
 # Action space: a0
-class Action:
+class Action(pomdp_py.Action):
     """The action is a single velocity value."""
 
     def __init__(self, data):
@@ -201,7 +201,7 @@ class Action:
 
     def __eq__(self, other):
         if isinstance(other, Action):
-            return self.data == other.data
+            return abs(self.data - other.data) < 0.01
         return False
 
     def __str__(self):
@@ -213,7 +213,7 @@ class Action:
 
 
 # Observation space: {[x,y,vx,vy,a]}
-class Observation:
+class Observation(pomdp_py.Observation):
     def __init__(self, data):
         """
         Initializes an observation with a list of tuples.
@@ -232,8 +232,15 @@ class Observation:
 
     def __eq__(self, other):
         if isinstance(other, Observation):
-            # Compare lists of tuples element-wise
-            return self.data == other.data
+            if len(self.data) != len(other.data):
+                return False
+            # Compare lists of tuples element-wise with tolerances
+            for (x1, y1, vx1, vy1, a1), (x2, y2, vx2, vy2, a2) in zip(self.data, other.data):
+                if not (abs(x1 - x2) < 0.1 and abs(y1 - y2) < 0.1 and
+                        abs(vx1 - vx2) < 0.1 and abs(vy1 - vy2) < 0.1 and
+                        abs(a1 - a2) < 0.01):
+                    return False
+            return True
         return False
 
     def __str__(self):
@@ -324,7 +331,6 @@ class ObservationModel(pomdp_py.ObservationModel):
             # Append the (x, y, vx, vy, acceleration) tuple to the data list
             data.append((x, y, vx, vy, acceleration))
 
-        data = np.array(data)
         return Observation(data)
 
     def argmax(self, next_state, action):
@@ -422,20 +428,24 @@ class TransitionModel(pomdp_py.TransitionModel):
     def sample(self, state, action):
         next_state = []
         k = len(state.data)
+        next_terminal = state.terminal
         for i in range(k):
             # Create the data tuple according to stype
             new_s = state.data[i][0] - state.data[i][1] * TSTEP
             if new_s < 0.0:
-                new_r = random.choice(self.map.get_next_waypoints(state.data[i][3]))
-                new_s = self.map.find_length_by_waypoint(new_r) + new_s
+                next_list = self.map.get_next_waypoints(state.data[i][3])
+                if len(next_list) == 0 and i == 0:
+                    next_terminal = True
+                else:
+                    new_r = random.choice(self.map.get_next_waypoints(state.data[i][3]))
+                    new_s = self.map.find_length_by_waypoint(new_r) + new_s
             else:
                 new_r = state.data[i][3]
             new_v = state.data[i][1] + state.data[i][2] * TSTEP
             new_a = state.data[i][2]
             data = (new_s, new_v, new_a, new_r)
             next_state.append(data)
-        next_state = np.array(next_state, dtype=stype)
-        return State(next_state)
+        return State(next_state, next_terminal)
 
     def argmax(self, state, action):
         """Returns the most likely next state"""
@@ -499,6 +509,7 @@ class PolicyModel(pomdp_py.RolloutPolicy):
 
     def sample(self, state):
         action_probabilities = self._calculate_action_probabilities(state)
+        action_probabilities /= action_probabilities.sum()
         # Select an action based on these weighted probabilities
         chosen_action = np.random.choice(self.ACTIONS, p=action_probabilities)
         return chosen_action
@@ -517,8 +528,8 @@ class PolicyModel(pomdp_py.RolloutPolicy):
         av = np.clip((8.0 - v0) / (10 * TSTEP), -2, 2)
         action_probabilities = []
         for action in self.ACTIONS:
-            p1 = norm.pdf(action, loc=a0, scale=2.0)
-            p2 = norm.pdf(action, loc=av, scale=4.0)
+            p1 = norm.pdf(action.data, loc=a0, scale=2.0)
+            p2 = norm.pdf(action.data, loc=av, scale=4.0)
             action_probabilities.append(p1 + p2)
 
         # Normalize to create a probability distribution
@@ -554,8 +565,19 @@ class IntersectionProblem(pomdp_py.POMDP):
         super().__init__(agent, env, name="IntersectionProblem")
 
     def print_state(self):
-        string = "\n______ID______\n"
-        print(string)
+        state = self.env.state
+        print("\n______ Current State ______")
+
+        for i, data in enumerate(state.data):
+            s, v, a, r = data  # Unpack the tuple
+            print(f"Vehicle {i}:")
+            print(f"  Position (s): {s:.2f}")
+            print(f"  Speed (v): {v:.2f}")
+            print(f"  Acceleration (a): {a:.2f}")
+            print(f"  Road ID (r): {r}")
+            print("---------------------------")
+
+        print("Terminal State:", "Yes" if state.terminal else "No")
 
 
 def test_planner(intersection_problem, planner, nsteps=3, discount=0.95):
@@ -601,11 +623,10 @@ def test_planner(intersection_problem, planner, nsteps=3, discount=0.95):
 
 
 def init_particles_belief(num_particles, init_state):
-    """ TODO """
     num_particles = 200
     particles = []
     for _ in range(num_particles):
-        particles.append(State(init_state, False))
+        particles.append(init_state)
     init_belief = pomdp_py.Particles(particles)
     return init_belief
 
