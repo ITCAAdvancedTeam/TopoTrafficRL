@@ -1,8 +1,4 @@
-"""This POMDP comparison class is modified based on the rocksample problem: project_ws/venv/lib64/python3.10/site-packages/pomdp_py/problems/rocksample/rocksample_problem.py.
-
-This is a POMDP problem; Namely, it specifies both
-the POMDP (i.e. state, action, observation space)
-and the T/O/R for the agent as well as the environment.
+"""This POMDP comparison class is the classic formulation of intersection crossing problem
 
 States: [S0,S1,...,Sk], math:`S\subseteq[\mathbb{R},\mathbb{R},\mathbb{R},\mathbb{N}]^(k+1)`
 Actions: a0, math:`A\subseteq[\mathbb{R}`
@@ -10,21 +6,13 @@ Rewards:
     - Crush reward
     - velocity reward
     - acceleration reward
-Observations: [o0,o1,...,ok], math:`S\subseteq[\mathbb{R},\mathbb{R},\mathbb{R}]^(k+1)`
+Observations: [o0,o1,...,ok], math:`S\subseteq[\mathbb{R},\mathbb{R},\mathbb{R},\mathbb{R}]^(k+1)`
 
-Note that in this example, it is a POMDP that
-also contains the agent and the environment as its fields. In
-general this doesn't need to be the case. (Refer to more
-complicated examples.)
 """
 
-import pomdp_py
-from pomdp_py.utils import TreeDebugger
 import random
 import numpy as np
 from scipy.stats import norm
-import sys
-import copy
 
 TSTEP = 0.1
 
@@ -96,7 +84,11 @@ class TopoMap:
         Returns:
             list: List of next waypoint sequence IDs, or an empty list if none are found.
         """
-        return self.topology.get(waypoint_id, [])
+        if waypoint_id not in self.topology:
+            print(f"Warning: waypoint_id {waypoint_id} not found in topology.")
+            return []
+
+        return self.topology[waypoint_id]
 
     def find_waypoint_by_length(self, waypoint_id, distance_from_end):
         """
@@ -151,18 +143,18 @@ class TopoMap:
 
 
 # State space: {[s,v,a,r]}
-class State(pomdp_py.State):
-    def __init__(self, data, terminal=False):
+class State():
+    def __init__(self, data, terminate=False):
         """
         data (list of tuple): Each tuple contains (double, double, double, int) representing [s, v, a, r].
-        terminal (bool): Indicates if it's a terminal state.
+        terminate (bool): Indicates if it's a terminate state.
         """
         # Ensure that `data` is a list of tuples with the correct structure
         if not isinstance(data, list) or not all(isinstance(t, tuple) and len(t) == 4 for t in data):
             raise ValueError("Data must be a list of tuples, each containing (double, double, double, int).")
 
         self.data = data
-        self.terminal = terminal
+        self.terminate = terminate
 
     def __hash__(self):
         # Convert data to a hashable tuple structure
@@ -182,7 +174,7 @@ class State(pomdp_py.State):
 
 
 # Action space: a0
-class Action(pomdp_py.Action):
+class Action():
     """The action is a single velocity value."""
 
     def __init__(self, data):
@@ -212,14 +204,14 @@ class Action(pomdp_py.Action):
 
 
 
-# Observation space: {[x,y,vx,vy,a]}
-class Observation(pomdp_py.Observation):
+# Observation space: {[x,y,vx,vy]}
+class Observation():
     def __init__(self, data):
         """
         Initializes an observation with a list of tuples.
 
         Args:
-            data (list of tuple): Each tuple should contain (double, double, double, double, double) representing [x, y, vx, vy, a].
+            data (list of tuple): Each tuple should contain (double, double, double, double) representing [x, y, vx, vy].
         """
         # Ensure data is a list of tuples with the correct structure
         if not isinstance(data, list) or not all(isinstance(t, tuple) and len(t) == 5 for t in data):
@@ -235,13 +227,13 @@ class Observation(pomdp_py.Observation):
             if len(self.data) != len(other.data):
                 return False
             # Compare lists of tuples element-wise with tolerances
-            for (x1, y1, vx1, vy1, a1), (x2, y2, vx2, vy2, a2) in zip(self.data, other.data):
+            for (x1, y1, vx1, vy1), (x2, y2, vx2, vy2) in zip(self.data, other.data):
                 if not (abs(x1 - x2) < 0.1 and abs(y1 - y2) < 0.1 and
-                        abs(vx1 - vx2) < 0.1 and abs(vy1 - vy2) < 0.1 and
-                        abs(a1 - a2) < 0.01):
+                        abs(vx1 - vx2) < 0.1 and abs(vy1 - vy2) < 0.1):
                     return False
             return True
         return False
+
 
     def __str__(self):
         return str(self.data)
@@ -250,9 +242,8 @@ class Observation(pomdp_py.Observation):
         return f"Observation(data={self.data})"
 
 
-
 # Observation model
-class ObservationModel(pomdp_py.ObservationModel):
+class ObservationModel():
     """
     The ObservationModel class defines the observation dynamics of a POMDP, determining
     how likely a particular observation is given the current state and an action. It also
@@ -265,7 +256,7 @@ class ObservationModel(pomdp_py.ObservationModel):
     Methods:
         probability(observation, next_state, action):
             Computes the probability of observing `observation` given `next_state` and `action`.
-            The probability considers the angular difference and distance between the observation
+            The probability sconsiders the angular difference and distance between the observation
             and the next state's corresponding waypoint.
 
         sample(next_state, action, argmax=False):
@@ -276,11 +267,12 @@ class ObservationModel(pomdp_py.ObservationModel):
             Returns the most likely observation for a given `next_state` and `action` by
             calling `sample` with `argmax=True`.
     """
-    def __init__(self, map=None, noise=0.15):
+    def __init__(self, map=None, noise_level=0.1):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
-        self.noise = noise  # Noise parameter to control randomness in sampling
+        self.noise_level = noise_level  # Noise parameter to control randomness in sampling
 
     def probability(self, observation, next_state, action):
+        print("observation prob") # debug
         p = []
         k = len(observation.data)
         for i in range(k):
@@ -294,7 +286,7 @@ class ObservationModel(pomdp_py.ObservationModel):
             p.append(p1 * p2)
         p = np.array(p)
         pa = np.exp(np.sum(np.log(p)))
-        pb = norm.pdf(observation.data[0][4] - action.data, loc=0, scale=1.0)
+        pb = norm.pdf(next_state.data[0][2] - action.data, loc=0, scale=0.5)
         return pa * pb
 
     def sample(self, next_state, action, argmax=False):
@@ -315,22 +307,22 @@ class ObservationModel(pomdp_py.ObservationModel):
                 return Observation([])
 
             x, y, yaw = waypoint
+            # Introduce Gaussian noise to the position
+            if i != 0:
+                x += norm.rvs(scale=self.noise_level * 2)
+                y += norm.rvs(scale=self.noise_level * 2)
             # Determine velocity magnitude
-            v_magnitude = (next_state.data[i][1] - action.data * TSTEP) if i == 0 else next_state.data[i][1]
+            v_magnitude = next_state.data[i][1]
+            if not argmax and i != 0:
+                v_magnitude += norm.rvs(scale=self.noise_level)  # Small noise for velocity magnitude
 
             # Calculate the velocity components based on yaw
             vx = v_magnitude * np.cos(yaw)  # X-component of velocity
             vy = v_magnitude * np.sin(yaw)  # Y-component of velocity
 
-            # Calculate acceleration with some random noise around `next_state[i][2]`
-            if argmax:
-                acceleration = next_state.data[i][2]
-            else:
-                acceleration = norm.rvs(loc=next_state.data[i][2], scale=0.1)
+            # Append the (x, y, vx, vy) tuple to the data list
+            data.append((x, y, vx, vy))
 
-            # Append the (x, y, vx, vy, acceleration) tuple to the data list
-            data.append((x, y, vx, vy, acceleration))
-        
         # debug
         print("Sampling Observation for state:", next_state)
         print("Generated observation data:", data)
@@ -343,7 +335,7 @@ class ObservationModel(pomdp_py.ObservationModel):
 
 
 # Transition Model
-class TransitionModel(pomdp_py.TransitionModel):
+class TransitionModel():
     """
     The TransitionModel class defines the transition dynamics of a POMDP, describing
     how the state evolves given an action. This model determines the probability of
@@ -375,12 +367,12 @@ class TransitionModel(pomdp_py.TransitionModel):
     def probability(self, next_state, state, action):
         """probability of conflicting vehicle's reaction toward ego"""
         # ego
-        pa = norm.pdf(state.data[0][2] - next_state.data[0][2], loc=0, scale=1.0)
+        pa = norm.pdf(action.data - next_state.data[0][2], loc=0, scale=1.0)
 
         # confliction
         p = []
         k = len(state.data)
-        ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
+        ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3]) # TODO: extend to a certain distance
         TTC = []
         for id in ego_list:
             len_to_end = state.data[0][0] if id == state.data[0][3] else state.data[0][0] + self.map.find_length_by_waypoint(id)
@@ -430,23 +422,27 @@ class TransitionModel(pomdp_py.TransitionModel):
         return pa * pb
 
     def sample(self, state, action):
+        # TODO: consider conflicting respond from other vehicle as well
         next_state = []
         k = len(state.data)
-        next_terminal = state.terminal
+        next_terminal = state.terminate
         for i in range(k):
             # Create the data tuple according to stype
             new_s = state.data[i][0] - state.data[i][1] * TSTEP
             if new_s < 0.0:
                 next_list = self.map.get_next_waypoints(state.data[i][3])
-                if len(next_list) == 0 and i == 0:
-                    next_terminal = True
+                if len(next_list) == 0:
+                    new_r = state.data[i][3]
+                    new_s = 0.0
+                    if i == 0:
+                        next_terminal = True
                 else:
                     new_r = random.choice(self.map.get_next_waypoints(state.data[i][3]))
                     new_s = self.map.find_length_by_waypoint(new_r) + new_s
             else:
                 new_r = state.data[i][3]
-            new_v = state.data[i][1] + state.data[i][2] * TSTEP
-            new_a = state.data[i][2]
+            new_a = action.data if i == 0 else state.data[i][2]
+            new_v = state.data[i][1] + new_a * TSTEP
             data = (new_s, new_v, new_a, new_r)
             next_state.append(data)
 
@@ -462,7 +458,7 @@ class TransitionModel(pomdp_py.TransitionModel):
 
 
 # Reward Model
-class RewardModel(pomdp_py.RewardModel):
+class RewardModel():
     """
     The RewardModel class calculates the reward for transitioning from a given state
     to a next state when an action is taken. The reward considers various factors
@@ -487,8 +483,8 @@ class RewardModel(pomdp_py.RewardModel):
         self.K3 = 10.0 # acceleration reward
     def sample(self, state, action, next_state):
         # deterministic
-        if state.terminal:
-            return 0  # terminated. No reward
+        if state.terminate:
+            return 100  # reach target and terminated
         R1 = [1]
         R2 = [norm.pdf(state.data[0][1] + action.data * TSTEP, loc=8.0, scale=4.0)]
         R3 = [norm.pdf(action.data, loc=0.0, scale=2.0)]
@@ -507,21 +503,27 @@ class RewardModel(pomdp_py.RewardModel):
                 R1.append(r1)
                 R2.append(r2)
                 R3.append(r3)
-        return self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
-
+        reward = self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
+        print("reward: ", reward)
+        return reward
 
 # Policy Model
-class PolicyModel(pomdp_py.RolloutPolicy):
+class PolicyModel():
     """The policy should favor 1. keep speed (v) 2. comfort (a)"""
 
     ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
 
     def sample(self, state):
+        print("policy sample")  # debug
         action_probabilities = self._calculate_action_probabilities(state)
+        print("Action Probabilities:", action_probabilities)  # Print the calculated probabilities
+
         action_probabilities /= action_probabilities.sum()
-        # Select an action based on these weighted probabilities
         chosen_action = np.random.choice(self.ACTIONS, p=action_probabilities)
+        print("Chosen Action:", chosen_action)  # Print the chosen action based on probabilities
+
         return chosen_action
+
 
     def _calculate_action_probabilities(self, state):
         """
@@ -551,251 +553,3 @@ class PolicyModel(pomdp_py.RolloutPolicy):
 
     def get_all_actions(self, state=None, history=None):
         return PolicyModel.ACTIONS
-
-
-# Problem definition
-class IntersectionProblem(pomdp_py.POMDP):
-    """
-    In fact, creating a IntersectionProblem class is entirely optional
-    to simulate and solve POMDPs. But this is just an example
-    of how such a class can be created.
-    """
-
-    def __init__(self, obs_noise, init_true_state, init_belief, map):
-        """init_belief is a Distribution."""
-        agent = pomdp_py.Agent(
-            init_belief,
-            PolicyModel(),
-            TransitionModel(map=map),
-            ObservationModel(map=map, noise=obs_noise),
-            RewardModel(map=map),
-        )
-        env = pomdp_py.Environment(init_true_state, TransitionModel(map=map), RewardModel(map=map))
-        super().__init__(agent, env, name="IntersectionProblem")
-
-    def print_state(self):
-        state = self.env.state
-        print("\n______ Current State ______")
-
-        for i, data in enumerate(state.data):
-            s, v, a, r = data  # Unpack the tuple
-            print(f"Vehicle {i}:")
-            print(f"  Position (s): {s:.2f}")
-            print(f"  Speed (v): {v:.2f}")
-            print(f"  Acceleration (a): {a:.2f}")
-            print(f"  Road ID (r): {r}")
-            print("---------------------------")
-
-        print("Terminal State:", "Yes" if state.terminal else "No")
-
-
-def test_planner(intersection_problem, planner, nsteps=3, discount=0.95):
-    """TODO"""
-    gamma = 1.0
-    total_reward = 0
-    total_discounted_reward = 0
-    for i in range(nsteps):
-        print("==== Step %d ====" % (i + 1))
-        action = planner.plan(intersection_problem.agent)
-
-        true_state = copy.deepcopy(intersection_problem.env.state)
-        env_reward = intersection_problem.env.state_transition(action, execute=True)
-        true_next_state = copy.deepcopy(intersection_problem.env.state)
-
-        real_observation = intersection_problem.env.provide_observation(
-            intersection_problem.agent.observation_model, action
-        )
-        intersection_problem.agent.update_history(action, real_observation)
-
-        print("Current Belief Particle Count:", len(intersection_problem.agent.belief.particles))
-        print("Action Taken:", action)
-        print("Real Observation:", real_observation)
-
-        planner.update(intersection_problem.agent, action, real_observation)
-        total_reward += env_reward
-        total_discounted_reward += env_reward * gamma
-        gamma *= discount
-        print("True state: %s" % true_state)
-        print("Action: %s" % str(action))
-        print("Observation: %s" % str(real_observation))
-        print("Reward: %s" % str(env_reward))
-        print("Reward (Cumulative): %s" % str(total_reward))
-        print("Reward (Cumulative Discounted): %s" % str(total_discounted_reward))
-        if isinstance(planner, pomdp_py.POUCT):
-            print("__num_sims__: %d" % planner.last_num_sims)
-            print("__plan_time__: %.5f" % planner.last_planning_time)
-        if isinstance(planner, pomdp_py.PORollout):
-            print("__best_reward__: %d" % planner.last_best_reward)
-        print("World:")
-        intersection_problem.print_state()
-
-        if intersection_problem.in_exit_area(intersection_problem.env.state.position):
-            break
-    return total_reward, total_discounted_reward
-
-
-def init_particles_belief(num_particles, init_state):
-    num_particles = 200
-    particles = []
-    for _ in range(num_particles):
-        particles.append(init_state)
-    init_belief = pomdp_py.Particles(particles)
-    return init_belief
-
-
-def interpolate_line_with_yaw(start_point, end_point, num_points=20):
-    """
-    Interpolates a line segment between two points with yaw values and returns a list of (x, y, yaw) tuples.
-
-    Parameters:
-    start_point (tuple): Coordinates and yaw of the start point (x1, y1, yaw1).
-    end_point (tuple): Coordinates and yaw of the end point (x2, y2, yaw2).
-    num_points (int): Number of interpolated points. Default is 20.
-
-    Returns:
-    list: A list of tuples, each containing (x, y, yaw).
-    """
-    # Extract start and end coordinates and yaw
-    x1, y1, yaw1 = start_point
-    x2, y2, yaw2 = end_point
-
-    # Generate interpolated x, y, and yaw values
-    x_values = np.linspace(x1, x2, num_points)
-    y_values = np.linspace(y1, y2, num_points)
-    yaw_values = np.linspace(yaw1, yaw2, num_points)
-
-    # Combine x, y, and yaw into a list of tuples
-    interpolated_points = [(x, y, yaw) for x, y, yaw in zip(x_values, y_values, yaw_values)]
-
-    return interpolated_points
-
-def simple_no_left_4_way_intersection():
-    map = TopoMap()
-    l = 2.0 # half lane width
-
-    in1 = interpolate_line_with_yaw([6*l, 1*l, np.pi], [4*l, 1*l, np.pi])
-    in2 = interpolate_line_with_yaw([-1*l, 6*l, -np.pi/2], [-1*l, 4*l, -np.pi/2])
-    in3 = interpolate_line_with_yaw([-6*l, -1*l, 0], [-4*l, -1*l, 0])
-    in4 = interpolate_line_with_yaw([1*l, -6*l, np.pi/2], [1*l, -4*l, np.pi/2])
-
-    in5 = interpolate_line_with_yaw([4*l, 1*l, np.pi], [1*l, 1*l, np.pi])
-    in6 = interpolate_line_with_yaw([-1*l, 4*l, -np.pi/2], [-1*l, 1*l, -np.pi/2])
-    in7 = interpolate_line_with_yaw([-4*l, -1*l, 0], [-1*l, -1*l, 0])
-    in8 = interpolate_line_with_yaw([1*l, -4*l, np.pi/2], [1*l, -1*l, np.pi/2])
-
-    mid1 = interpolate_line_with_yaw([1*l, 1*l, np.pi], [-1*l, 1*l, np.pi])
-    mid2 = interpolate_line_with_yaw([-1*l, 1*l, -np.pi/2], [-1*l, -1*l, -np.pi/2])
-    mid3 = interpolate_line_with_yaw([-1*l, -1*l, 0], [1*l, -1*l, 0])
-    mid4 = interpolate_line_with_yaw([1*l, -1*l, np.pi/2], [1*l, 1*l, np.pi/2])
-
-    out1 = interpolate_line_with_yaw([1*l, -1*l, 0], [4*l, -1*l, 0])
-    out2 = interpolate_line_with_yaw([1*l, 1*l, np.pi/2], [1*l, 4*l, np.pi/2])
-    out3 = interpolate_line_with_yaw([-1*l, 1*l, np.pi], [-4*l, 1*l, np.pi])
-    out4 = interpolate_line_with_yaw([-1*l, -1*l, -np.pi/2], [-1*l, -4*l, -np.pi/2])
-
-    out5 = interpolate_line_with_yaw([4*l, -1*l, 0], [6*l, -1*l, 0])
-    out6 = interpolate_line_with_yaw([1*l, 4*l, np.pi/2], [1*l, 6*l, np.pi/2])
-    out7 = interpolate_line_with_yaw([-4*l, 1*l, np.pi], [-6*l, 1*l, np.pi])
-    out8 = interpolate_line_with_yaw([-1*l, -4*l, -np.pi/2], [-1*l, -6*l, -np.pi/2])
-
-    turn1 = interpolate_line_with_yaw([4*l, 1*l, np.pi], [1*l, 4*l, np.pi/2])
-    turn2 = interpolate_line_with_yaw([-1*l, 4*l, -np.pi/2], [-4*l, 1*l, -np.pi])
-    turn3 = interpolate_line_with_yaw([-4*l, -1*l, 0], [-1*l, -4*l, -np.pi/2])
-    turn4 = interpolate_line_with_yaw([1*l, -4*l, np.pi/2], [4*l, -1*l, 0])
-
-    map.add_waypoints(0, in1)
-    map.add_waypoints(1, in5)
-    map.add_connection(0, 1)
-    map.add_waypoints(2, turn1)
-    map.add_connection(0, 2)
-
-    map.add_waypoints(3, in2)
-    map.add_waypoints(4, in6)
-    map.add_connection(3, 4)
-    map.add_waypoints(5, turn2)
-    map.add_connection(3, 5)
-
-    map.add_waypoints(6, in3)
-    map.add_waypoints(7, in7)
-    map.add_connection(6, 7)
-    map.add_waypoints(8, turn3)
-    map.add_connection(6, 8)
-
-    map.add_waypoints(9, in4)
-    map.add_waypoints(10, in8)
-    map.add_connection(9, 10)
-    map.add_waypoints(11, turn4)
-    map.add_connection(9, 11)
-
-    map.add_waypoints(12, mid1)
-    map.add_connection(12, 1)
-    map.add_waypoints(13, mid2)
-    map.add_connection(13, 4)
-    map.add_waypoints(14, mid3)
-    map.add_connection(14, 7)
-    map.add_waypoints(15, mid4)
-    map.add_connection(15, 10)
-    map.add_confliction(1, 15)
-    map.add_confliction(4, 12)
-    map.add_confliction(7, 13)
-    map.add_confliction(10, 14)
-
-    map.add_waypoints(16, out1)
-    map.add_connection(14, 16)
-    map.add_confliction(16, 11)
-    map.add_waypoints(17, out2)
-    map.add_connection(15, 17)
-    map.add_confliction(17, 2)
-    map.add_waypoints(18, out3)
-    map.add_connection(12, 18)
-    map.add_confliction(18, 5)
-    map.add_waypoints(19, out4)
-    map.add_connection(13, 19)
-    map.add_confliction(19, 8)
-
-    map.add_waypoints(20, out5)
-    map.add_connection(11, 20)
-    map.add_connection(16, 20)
-    map.add_waypoints(21, out6)
-    map.add_connection(2, 21)
-    map.add_connection(17, 21)
-    map.add_waypoints(22, out7)
-    map.add_connection(5, 22)
-    map.add_connection(18, 22)
-    map.add_waypoints(23, out8)
-    map.add_connection(8, 23)
-    map.add_connection(19, 23)
-
-    return map
-
-
-def main():
-    # TODO: create a init_belief and init_true_state
-    obs_noise = 0.15
-    map = simple_no_left_4_way_intersection()
-    s0 = map.find_length_by_waypoint(9)
-    s1 = map.find_length_by_waypoint(0)
-    init_true_state_data = [(s0, 8.0, 0.0, 9), (s1, 8.0, 0.0, 0)]
-    init_true_state = State(init_true_state_data)
-    init_belief = init_particles_belief(num_particles=200, init_state=init_true_state)
-
-    problem = IntersectionProblem(obs_noise, init_true_state, init_belief, map)
-
-    print("** Testing POMCP **")
-    problem.agent.set_belief(
-        pomdp_py.Particles.from_histogram(init_belief, num_particles=100), prior=True
-    )
-    pomcp = pomdp_py.POMCP(
-        max_depth=3,
-        discount_factor=0.95,
-        num_sims=1000,
-        exploration_const=50,
-        rollout_policy=problem.agent.policy_model,
-        show_progress=True,
-        pbar_update_interval=500,
-    )
-    tt, ttd = test_planner(problem, pomcp, nsteps=100, discount=0.95)
-
-
-if __name__ == "__main__":
-    main()

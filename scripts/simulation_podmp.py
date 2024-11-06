@@ -1,4 +1,5 @@
-# the is the optimization based solution main file
+# this is the optimization based solution
+# Firstly, test thes POMCPOW solver
 
 import sys
 import os
