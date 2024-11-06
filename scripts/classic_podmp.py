@@ -315,8 +315,8 @@ class ObservationModel(pomdp_py.ObservationModel):
                 return Observation([])
 
             x, y, yaw = waypoint
-            # Determine velocity magnitude: use `action.data` if `i == 0`, else use `next_state[i][2]`
-            v_magnitude = action.data if i == 0 else next_state.data[i][2]
+            # Determine velocity magnitude
+            v_magnitude = (next_state.data[i][1] - action.data * TSTEP) if i == 0 else next_state.data[i][1]
 
             # Calculate the velocity components based on yaw
             vx = v_magnitude * np.cos(yaw)  # X-component of velocity
@@ -330,6 +330,10 @@ class ObservationModel(pomdp_py.ObservationModel):
 
             # Append the (x, y, vx, vy, acceleration) tuple to the data list
             data.append((x, y, vx, vy, acceleration))
+        
+        # debug
+        print("Sampling Observation for state:", next_state)
+        print("Generated observation data:", data)
 
         return Observation(data)
 
@@ -445,6 +449,11 @@ class TransitionModel(pomdp_py.TransitionModel):
             new_a = state.data[i][2]
             data = (new_s, new_v, new_a, new_r)
             next_state.append(data)
+
+        # debug
+        print("Sampling Next State from state:", state)
+        print("Generated next state data:", next_state)
+
         return State(next_state, next_terminal)
 
     def argmax(self, state, action):
@@ -588,8 +597,6 @@ def test_planner(intersection_problem, planner, nsteps=3, discount=0.95):
     for i in range(nsteps):
         print("==== Step %d ====" % (i + 1))
         action = planner.plan(intersection_problem.agent)
-        # pomdp_py.visual.visualize_pouct_search_tree(intersection_problem.agent.tree,
-        #                                             max_depth=5, anonymize=False)
 
         true_state = copy.deepcopy(intersection_problem.env.state)
         env_reward = intersection_problem.env.state_transition(action, execute=True)
@@ -599,6 +606,11 @@ def test_planner(intersection_problem, planner, nsteps=3, discount=0.95):
             intersection_problem.agent.observation_model, action
         )
         intersection_problem.agent.update_history(action, real_observation)
+
+        print("Current Belief Particle Count:", len(intersection_problem.agent.belief.particles))
+        print("Action Taken:", action)
+        print("Real Observation:", real_observation)
+
         planner.update(intersection_problem.agent, action, real_observation)
         total_reward += env_reward
         total_discounted_reward += env_reward * gamma
