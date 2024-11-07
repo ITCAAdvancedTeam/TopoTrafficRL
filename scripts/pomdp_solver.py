@@ -17,66 +17,106 @@ import random
 import numpy as np
 from pomdp_core import *
 
-# Solver class: POMCPOWSolver
+
+class TreeNode:
+    """Represents a node in the MCTS tree for the POMCPOW solver."""
+    def __init__(self, belief, parent=None):
+        self.belief = belief
+        self.children = {}  # Maps actions to child nodes
+        self.visit_count = 0
+        self.value = 0.0
+        self.parent = parent
+
+    def update(self, reward):
+        """Updates the node's value and visit count based on observed reward."""
+        self.visit_count += 1
+        self.value += (reward - self.value) / self.visit_count
+
+
 class POMCPOWSolver:
-    def __init__(self, belief, transition_model, observation_model, reward_model, max_depth=3, num_sims=100):
+    def __init__(self, belief, transition_model, observation_model, reward_model, policy_model, max_depth=3, num_sims=100):
         self.belief = belief
         self.transition_model = transition_model
         self.observation_model = observation_model
         self.reward_model = reward_model
+        self.policy_model = policy_model
         self.max_depth = max_depth
         self.num_sims = num_sims
+        self.exploration_constant = 1.0  # UCB exploration constant
 
     def plan(self):
-        best_action = None
-        best_value = float('-inf')
-        actions = self.progressive_widening()  # Actions sampled with progressive widening
+        root = TreeNode(self.belief)
+        for _ in range(self.num_sims):
+            self.simulate(root, depth=self.max_depth)
+        return self.select_best_action(root)
 
-        for action in actions:
-            value = self.simulate(self.belief, action, depth=self.max_depth)
-            if value > best_value:
-                best_value = value
-                best_action = action
-
-        return best_action
-
-    def progressive_widening(self):
-        """Progressively selects a subset of actions to sample in continuous space."""
-        num_actions = int(np.log(self.num_sims) + 1)  # Adjust based on exploration needs
+    def progressive_widening(self, node):
+        """Returns a progressively expanded set of actions in continuous space."""
+        num_actions = int(np.log(self.num_sims) + 1)  # Determine number of actions to explore
         actions = [self.sample_continuous_action() for _ in range(num_actions)]
         return actions
 
     def sample_continuous_action(self):
-        """Samples a continuous action value (acceleration) from a range, e.g., [-2, 2]."""
+        """Samples a continuous action value (e.g., acceleration) within a specified range."""
         action_value = random.uniform(-2.0, 2.0)  # Adjust bounds as needed
         return Action(action_value)
 
-    def simulate(self, belief, action, depth):
+    def select_action(self, node):
+        """Selects an action based on UCB score, considering exploration vs. exploitation."""
+        def ucb_score(child_node):
+            exploration = self.exploration_constant * np.sqrt(np.log(node.visit_count + 1) / (child_node.visit_count + 1))
+            return child_node.value + exploration
+
+        return max(node.children.keys(), key=lambda action: ucb_score(node.children[action]))
+
+    def simulate(self, node, depth):
         if depth == 0:
             return 0
 
-        # Sample state from belief
-        state = random.choice(belief.particles)
+        # Choose action based on UCB
+        actions = self.progressive_widening(node)
+        action = self.select_action(node) if node.children else random.choice(actions)
 
-        # Sample next state and observation
-        next_state = self.transition_model.sample(state, action)
+        # Expand node if this action hasn't been tried yet
+        if action not in node.children:
+            next_belief = self.belief.update(action, self.observation_model.sample(self.belief.particles[0], action), self.observation_model)
+            child_node = TreeNode(next_belief, parent=node)
+            node.children[action] = child_node
+            reward = self.rollout(next_belief, depth - 1)
+            node.update(reward)
+            return reward
+
+        # Otherwise, simulate recursively down the tree
+        next_node = node.children[action]
+        next_state = self.transition_model.sample(self.belief.particles[0], action)
         observation = self.observation_model.sample(next_state, action)
+        self.belief.update(action, observation, self.observation_model)
 
-        # Update belief with new action and observation
-        belief.update(action, observation, self.observation_model)
+        immediate_reward = self.reward_model.sample(self.belief.particles[0], action, next_state)
+        future_reward = self.simulate(next_node, depth - 1)
 
-        # Calculate immediate reward
-        immediate_reward = self.reward_model.sample(state, action, next_state)
+        total_reward = immediate_reward + 0.95 * future_reward
+        node.update(total_reward)
+        return total_reward
 
-        # Recursive simulation to estimate future rewards
-        next_action = self.plan()  # Recurse or use rollout policy for quicker evaluation
-        future_reward = self.simulate(belief, next_action, depth - 1)
+    def rollout(self, belief, depth):
+        """Simulates a random rollout to estimate reward for unexplored nodes."""
+        if depth == 0:
+            return 0
 
-        return immediate_reward + 0.95 * future_reward
+        action = self.policy_model.rollout(belief)  # Use the policy model's rollout
+        next_state = self.transition_model.sample(belief.particles[0], action)
+        immediate_reward = self.reward_model.sample(belief.particles[0], action, next_state)
+        return immediate_reward + 0.95 * self.rollout(belief, depth - 1)
+
+    def select_best_action(self, root):
+        """Selects the best action from the root node based on visit counts."""
+        best_action = max(root.children, key=lambda action: root.children[action].visit_count)
+        return best_action
 
 
-# Belief class with particle-based representation
 class Belief:
+    """Represents the belief state with particle-based filtering."""
     def __init__(self, num_particles, initial_state, transition_model):
         self.particles = [initial_state] * num_particles
         self.transition_model = transition_model
@@ -84,17 +124,15 @@ class Belief:
     def update(self, action, observation, observation_model):
         new_particles = []
         for particle in self.particles:
-            # Sample a next state from the transition model and weight by observation likelihood
+            # Sample next state based on transition model and weight by observation likelihood
             next_particle = self.transition_model.sample(particle, action)
             obs_prob = observation_model.probability(observation, next_particle, action)
-
             if obs_prob > 0:
                 new_particles.append(next_particle)
 
-        # Handle particle deprivation by resampling if necessary
+        # Resample particles if none remain after filtering
         if not new_particles:
             new_particles = [self.transition_model.sample(random.choice(self.particles), action) for _ in range(len(self.particles))]
-
         self.particles = new_particles
 
 

@@ -40,6 +40,7 @@ solver = POMCPOWSolver(
     transition_model=transition_model,
     observation_model=observation_model,
     reward_model=reward_model,
+    policy_model=policy_model
     max_depth=3,
     num_sims=100
 )
