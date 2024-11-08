@@ -28,7 +28,7 @@ policy_model = PolicyModel()
 # Define the initial state
 s0 = map.find_length_by_waypoint(9)
 s1 = map.find_length_by_waypoint(0)
-initial_state = [(s0, 8.0, 0.0, 9), (s1, 8.0, 0.0, 0)]
+initial_state = State([(s0, 8.0, 0.0, 9), (s1, 8.0, 0.0, 0)])
 num_particles = 100  # Number of particles in the belief
 
 # Initialize belief with particles around the initial state

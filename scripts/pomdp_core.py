@@ -214,8 +214,8 @@ class Observation():
             data (list of tuple): Each tuple should contain (double, double, double, double) representing [x, y, vx, vy].
         """
         # Ensure data is a list of tuples with the correct structure
-        if not isinstance(data, list) or not all(isinstance(t, tuple) and len(t) == 5 for t in data):
-            raise ValueError("Data must be a list of tuples, each containing (double, double, double, double, double).")
+        if not isinstance(data, list) or not all(isinstance(t, tuple) and len(t) == 4 for t in data):
+            raise ValueError("Data must be a list of tuples, each containing (double, double, double, double).")
         self.data = data
 
     def __hash__(self):
@@ -272,7 +272,7 @@ class ObservationModel():
         self.noise_level = noise_level  # Noise parameter to control randomness in sampling
 
     def probability(self, observation, next_state, action):
-        print("observation prob") # debug
+        # print("observation prob") # debug
         p = []
         k = len(observation.data)
         for i in range(k):
@@ -324,8 +324,8 @@ class ObservationModel():
             data.append((x, y, vx, vy))
 
         # debug
-        print("Sampling Observation for state:", next_state)
-        print("Generated observation data:", data)
+        # print("Sampling Observation for state:", next_state)
+        # print("Generated observation data:", data)
 
         return Observation(data)
 
@@ -447,8 +447,8 @@ class TransitionModel():
             next_state.append(data)
 
         # debug
-        print("Sampling Next State from state:", state)
-        print("Generated next state data:", next_state)
+        # print("Sampling Next State from state:", state)
+        # print("Generated next state data:", next_state)
 
         return State(next_state, next_terminal)
 
@@ -504,7 +504,7 @@ class RewardModel():
                 R2.append(r2)
                 R3.append(r3)
         reward = self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
-        print("reward: ", reward)
+        # print("reward: ", reward)
         return reward
 
 # Policy Model
@@ -514,13 +514,13 @@ class PolicyModel():
     ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
 
     def sample(self, state):
-        print("policy sample")  # debug
+        # print("policy sample")  # debug
         action_probabilities = self._calculate_action_probabilities(state)
-        print("Action Probabilities:", action_probabilities)  # Print the calculated probabilities
+        # print("Action Probabilities:", action_probabilities)  # Print the calculated probabilities
 
         action_probabilities /= action_probabilities.sum()
         chosen_action = np.random.choice(self.ACTIONS, p=action_probabilities)
-        print("Chosen Action:", chosen_action)  # Print the chosen action based on probabilities
+        # print("Chosen Action:", chosen_action)  # Print the chosen action based on probabilities
 
         return chosen_action
 

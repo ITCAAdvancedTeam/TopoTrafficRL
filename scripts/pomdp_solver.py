@@ -44,6 +44,8 @@ class POMCPOWSolver:
         self.max_depth = max_depth
         self.num_sims = num_sims
         self.exploration_constant = 1.0  # UCB exploration constant
+        self.ka = 1.0  # Controls the rate of action expansion
+        self.alpha_a = 0.5  # Governs widening dependence on visits
 
     def plan(self):
         root = TreeNode(self.belief)
@@ -51,38 +53,66 @@ class POMCPOWSolver:
             self.simulate(root, depth=self.max_depth)
         return self.select_best_action(root)
 
-    def progressive_widening(self, node, is_action=True):
-        """Progressively expands actions or observations based on visit counts."""
-        count = node.visit_count if is_action else node.observation_count
-        num_samples = int(np.log(self.num_sims) + 1)  # DPW condition
-        samples = [self.sample_continuous_action() for _ in range(num_samples)] if is_action else [self.sample_observation()]
-        return samples
+    def action_progressive_widening(self, node):
+        """
+        Progressive widening for action selection based on visit counts.
+
+        Args:
+            node (TreeNode): The current tree node for which actions are being widened.
+
+        Returns:
+            Action: The selected action after applying progressive widening.
+        """
+        action_count = len(node.children)  # Number of actions currently expanded
+        widening_threshold = int(self.ka * (node.visit_count ** self.alpha_a))
+
+        # Add new actions if below the widening threshold
+        if action_count <= widening_threshold:
+            new_action = self.sample_continuous_action()
+            while new_action in node.children:  # Ensure uniqueness
+                new_action = self.sample_continuous_action()
+            node.children[new_action] = TreeNode(self.belief, parent=node)  # Add new action node
+
+        # Select the action with the highest UCB score
+        return self.select_ucb_action(node)
+
+    def select_ucb_action(self, node):
+        """
+        Selects the action with the highest UCB score among the node's children.
+
+        Args:
+            node (TreeNode): The current node from which to select the best action based on UCB.
+
+        Returns:
+            Action: The action with the highest UCB score.
+        """
+        best_action = None
+        best_ucb_score = float('-inf')
+
+        for action, child_node in node.children.items():
+            # Calculate UCB score for the child node
+            exploitation = child_node.value
+            exploration = self.exploration_constant * np.sqrt(np.log(node.visit_count + 1) / (child_node.visit_count + 1))
+            ucb_score = exploitation + exploration
+
+            # Update the best action based on the UCB score
+            if ucb_score > best_ucb_score:
+                best_ucb_score = ucb_score
+                best_action = action
+
+        return best_action
 
     def sample_continuous_action(self):
         """Samples a continuous action value (e.g., acceleration) within a specified range."""
         action_value = random.uniform(-2.0, 2.0)  # Adjust bounds as needed
         return Action(action_value)
 
-    def sample_observation(self):
-        """Placeholder for sampling an observation in continuous space."""
-        # Implement observation sampling based on problem requirements
-        pass
-
-    def select_action(self, node):
-        """Selects an action based on UCB score, considering exploration vs. exploitation."""
-        def ucb_score(child_node):
-            exploration = self.exploration_constant * np.sqrt(np.log(node.visit_count + 1) / (child_node.visit_count + 1))
-            return child_node.value + exploration
-
-        return max(node.children.keys(), key=lambda action: ucb_score(node.children[action]))
-
     def simulate(self, node, depth):
         if depth == 0:
             return 0
 
         # Choose action based on UCB or progressive widening if needed
-        actions = self.progressive_widening(node, is_action=True)
-        action = self.select_action(node) if node.children else random.choice(actions)
+        action = self.action_progressive_widening(node)
 
         # Expand node if this action hasn't been tried yet
         if action not in node.children:
@@ -95,8 +125,21 @@ class POMCPOWSolver:
 
         # Otherwise, simulate recursively down the tree
         next_node = node.children[action]
+
+        # Print particle sampling results at each step
+        print(f"Simulating depth {depth} with action: {action}")
+        print("Current Belief Particles:")
+        for i, particle in enumerate(self.belief.particles):
+            print(f"  Particle {i}: {particle}")
+
+        # Sample the next state and observation
         next_state = self.transition_model.sample(self.belief.particles[0], action)
+        print(f"Sampled next state based on particle[0]: {next_state}")
+
         observation = self.observation_model.sample(next_state, action)
+        print(f"Sampled observation for next state: {observation}")
+
+        # Update belief based on the action and observation
         self.belief.update(action, observation, self.observation_model)
 
         immediate_reward = self.reward_model.sample(self.belief.particles[0], action, next_state)
@@ -105,6 +148,7 @@ class POMCPOWSolver:
         total_reward = immediate_reward + 0.95 * future_reward
         node.update(total_reward)
         return total_reward
+
 
     def rollout(self, belief, depth):
         """Simulates a random rollout to estimate reward for unexplored nodes."""
