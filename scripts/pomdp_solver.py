@@ -26,6 +26,7 @@ class TreeNode:
         self.visit_count = 0
         self.value = 0.0
         self.parent = parent
+        self.observation_count = {}
 
     def update(self, reward):
         """Updates the node's value and visit count based on observed reward."""
@@ -50,16 +51,22 @@ class POMCPOWSolver:
             self.simulate(root, depth=self.max_depth)
         return self.select_best_action(root)
 
-    def progressive_widening(self, node):
-        """Returns a progressively expanded set of actions in continuous space."""
-        num_actions = int(np.log(self.num_sims) + 1)  # Determine number of actions to explore
-        actions = [self.sample_continuous_action() for _ in range(num_actions)]
-        return actions
+    def progressive_widening(self, node, is_action=True):
+        """Progressively expands actions or observations based on visit counts."""
+        count = node.visit_count if is_action else node.observation_count
+        num_samples = int(np.log(self.num_sims) + 1)  # DPW condition
+        samples = [self.sample_continuous_action() for _ in range(num_samples)] if is_action else [self.sample_observation()]
+        return samples
 
     def sample_continuous_action(self):
         """Samples a continuous action value (e.g., acceleration) within a specified range."""
         action_value = random.uniform(-2.0, 2.0)  # Adjust bounds as needed
         return Action(action_value)
+
+    def sample_observation(self):
+        """Placeholder for sampling an observation in continuous space."""
+        # Implement observation sampling based on problem requirements
+        pass
 
     def select_action(self, node):
         """Selects an action based on UCB score, considering exploration vs. exploitation."""
@@ -73,8 +80,8 @@ class POMCPOWSolver:
         if depth == 0:
             return 0
 
-        # Choose action based on UCB
-        actions = self.progressive_widening(node)
+        # Choose action based on UCB or progressive widening if needed
+        actions = self.progressive_widening(node, is_action=True)
         action = self.select_action(node) if node.children else random.choice(actions)
 
         # Expand node if this action hasn't been tried yet
@@ -116,7 +123,7 @@ class POMCPOWSolver:
 
 
 class Belief:
-    """Represents the belief state with particle-based filtering."""
+    """Represents the belief state with particle-based filtering and weighting."""
     def __init__(self, num_particles, initial_state, transition_model):
         self.particles = [initial_state] * num_particles
         self.transition_model = transition_model
@@ -124,16 +131,19 @@ class Belief:
     def update(self, action, observation, observation_model):
         new_particles = []
         for particle in self.particles:
-            # Sample next state based on transition model and weight by observation likelihood
             next_particle = self.transition_model.sample(particle, action)
             obs_prob = observation_model.probability(observation, next_particle, action)
             if obs_prob > 0:
-                new_particles.append(next_particle)
+                new_particles.append((next_particle, obs_prob))  # Track particles with weights
 
-        # Resample particles if none remain after filtering
+        # Handle particle resampling with weighted particles
         if not new_particles:
-            new_particles = [self.transition_model.sample(random.choice(self.particles), action) for _ in range(len(self.particles))]
-        self.particles = new_particles
+            new_particles = [(self.transition_model.sample(random.choice(self.particles), action), 1) for _ in range(len(self.particles))]
+
+        # Normalize weights and resample
+        weights = np.array([w for _, w in new_particles])
+        weights /= weights.sum()
+        self.particles = random.choices([p for p, _ in new_particles], weights=weights, k=len(self.particles))
 
 
 # Helper function
