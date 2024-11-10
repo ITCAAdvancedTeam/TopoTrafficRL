@@ -360,6 +360,11 @@ class TransitionModel():
             Returns the most likely `next_state` based on the given `state` and `action`.
             This method currently returns a sample state that represents the most probable
             outcome according to the defined transition dynamics.
+
+        Note:
+            rewrite the transition model when changing environment. If the transition model is define
+            in here, it means that the environment has an explicit formulation.
+
     """
     def __init__(self, map=None):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
