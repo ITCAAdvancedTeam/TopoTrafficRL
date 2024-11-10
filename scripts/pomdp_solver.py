@@ -32,6 +32,7 @@ class TreeNode:
         """Updates the node's value and visit count based on observed reward."""
         self.visit_count += 1
         self.value += (reward - self.value) / self.visit_count
+        print(f'[DEBUG] Updating TreeNode with reward: {reward} --> new visit_count: {self.visit_count}, new value: {self.value}')
 
 
 class POMCPOWSolver:
@@ -48,6 +49,7 @@ class POMCPOWSolver:
         self.alpha_a = 0.5  # Governs widening dependence on visits
 
     def plan(self):
+        print(f'[DEBUG] Starting plan method')
         root = TreeNode(self.belief)
         for _ in range(self.num_sims):
             self.simulate(root, depth=self.max_depth)
@@ -108,6 +110,7 @@ class POMCPOWSolver:
         return Action(action_value)
 
     def simulate(self, node, depth):
+        print(f'[DEBUG] simulate - Node: {node}, Depth: {depth}')
         if depth == 0:
             return 0
 
