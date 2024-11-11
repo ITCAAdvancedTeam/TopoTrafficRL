@@ -16,12 +16,12 @@ Functions:
 import random
 import numpy as np
 from pomdp_core import *
-
+import copy
 
 class TreeNode:
     """Represents a node in the MCTS tree for the POMCPOW solver."""
     def __init__(self, belief, parent=None):
-        self.belief = belief
+        self.belief = copy.deepcopy(belief)
         self.children = {}  # Maps actions to child nodes
         self.visit_count = 0
         self.value = 0.0
@@ -34,9 +34,32 @@ class TreeNode:
         self.value += (reward - self.value) / self.visit_count
         print(f'[DEBUG] Updating TreeNode with reward: {reward} --> new visit_count: {self.visit_count}, new value: {self.value}')
 
+    def print_tree(self, level=0):
+        """
+        Recursively prints the tree structure, showing each node's visit count and value.
+
+        Args:
+            level (int): The depth level of the current node, used for indentation.
+        """
+        indent = " + " * level  # Adjust indent for clarity
+        print(f"{indent}Node(level={level}, visit_count={self.visit_count}, value={self.value})")
+
+        for i, particle in enumerate(self.belief.particles[:3]):  # Print only the first few particles for brevity
+            print(f"{indent}  Particle {i}: {particle}")
+
+        # Recursively print each child node with its associated action
+        for action, child in self.children.items():
+            print(f"{indent}  Action: {action}")
+            if child:
+                child.print_tree(level + 1)
+            else:
+                print(f"{indent}    Node(level={level + 1}, visit_count=0, value=0.0) - Placeholder for unexpanded action")
+
+
 
 class POMCPOWSolver:
     def __init__(self, belief, transition_model, observation_model, reward_model, policy_model, max_depth=3, num_sims=100):
+        self.init_belief = copy.deepcopy(belief)
         self.belief = belief
         self.transition_model = transition_model
         self.observation_model = observation_model
@@ -47,13 +70,22 @@ class POMCPOWSolver:
         self.exploration_constant = 1.0  # UCB exploration constant
         self.ka = 1.0  # Controls the rate of action expansion
         self.alpha_a = 0.5  # Governs widening dependence on visits
+        self.root = TreeNode(belief)
+        self.action = Action(belief.particles[0].data[0][2])
+
 
     def plan(self):
         print(f'[DEBUG] Starting plan method')
-        root = TreeNode(self.belief)
+
+        # Run simulations, resetting to the initial root each time
         for _ in range(self.num_sims):
-            self.simulate(root, depth=self.max_depth)
-        return self.select_best_action(root)
+            self.root.print_tree()
+            current_node = self.root  # Start each simulation from the initial root
+            self.belief = self.init_belief
+            self.simulate(current_node, depth=self.max_depth)
+
+        # Select the best action from the root node after simulations
+        return self.select_best_action(self.root)
 
     def action_progressive_widening(self, node):
         """
@@ -69,11 +101,12 @@ class POMCPOWSolver:
         widening_threshold = int(self.ka * (node.visit_count ** self.alpha_a))
 
         # Add new actions if below the widening threshold
-        if action_count <= widening_threshold:
+        if node.visit_count == 0 or action_count <= widening_threshold:
             new_action = self.sample_continuous_action()
             while new_action in node.children:  # Ensure uniqueness
                 new_action = self.sample_continuous_action()
-            node.children[new_action] = TreeNode(self.belief, parent=node)  # Add new action node
+            node.children[new_action] = TreeNode(self.belief)  # Add new action node
+            print(f"add new action: {new_action}")
 
         # Select the action with the highest UCB score
         return self.select_ucb_action(node)
@@ -110,42 +143,39 @@ class POMCPOWSolver:
         return Action(action_value)
 
     def simulate(self, node, depth):
-        print(f'[DEBUG] simulate - Node: {node}, Depth: {depth}')
+        print(f'[DEBUG] simulate - Depth: {depth}')
         if depth == 0:
             return 0
 
-        # Choose action based on UCB or progressive widening if needed
-        action = self.action_progressive_widening(node)
-
-        # Expand node if this action hasn't been tried yet
-        if action not in node.children:
-            next_belief = self.belief.update(action, self.observation_model.sample(self.belief.particles[0], action), self.observation_model)
-            child_node = TreeNode(next_belief, parent=node)
-            node.children[action] = child_node
-            reward = self.rollout(next_belief, depth - 1)
-            node.update(reward)
-            return reward
-
-        # Otherwise, simulate recursively down the tree
-        next_node = node.children[action]
-
-        # Print particle sampling results at each step
-        print(f"Simulating depth {depth} with action: {action}")
-        print("Current Belief Particles:")
-        for i, particle in enumerate(self.belief.particles):
-            print(f"  Particle {i}: {particle}")
-
         # Sample the next state and observation
-        next_state = self.transition_model.sample(self.belief.particles[0], action)
-        print(f"Sampled next state based on particle[0]: {next_state}")
+        next_states = []
+        observations = []
+        for particle in self.belief.particles:
+            next_state = self.transition_model.sample(particle, self.action)
+            next_states.append(next_state)
 
-        observation = self.observation_model.sample(next_state, action)
-        print(f"Sampled observation for next state: {observation}")
+            observation = self.observation_model.sample(next_state, self.action)
+            observations.append(observation)
+        print(f"Sampled next states and observations based on all particles at action: {self.action}")
+        for i, (state, obs) in enumerate(zip(next_states, observations)):
+            print(f"  Particle {i} -> Next State: {state}, Observation: {obs}")
 
         # Update belief based on the action and observation
-        self.belief.update(action, observation, self.observation_model)
+        self.belief = self.belief.update(self.action, observation, self.observation_model)
+        node.children[self.action] = TreeNode(self.belief)  # Add new action node
+        next_node = node.children[self.action]
 
-        immediate_reward = self.reward_model.sample(self.belief.particles[0], action, next_state)
+        # Calculate immediate reward as an average over all particles
+        immediate_rewards = []
+        for particle, next_state in zip(self.belief.particles, next_states):
+            reward = self.reward_model.sample(particle, self.action, next_state)
+            immediate_rewards.append(reward)
+        immediate_reward = np.mean(immediate_rewards)
+
+        # Choose action based on UCB or progressive widening if needed
+        self.action = self.action_progressive_widening(node.children[self.action])
+
+        # Otherwise, simulate recursively down the tree
         future_reward = self.simulate(next_node, depth - 1)
 
         total_reward = immediate_reward + 0.95 * future_reward
@@ -171,150 +201,24 @@ class POMCPOWSolver:
 
 class Belief:
     """Represents the belief state with particle-based filtering and weighting."""
-    def __init__(self, num_particles, initial_state, transition_model):
-        self.particles = [initial_state] * num_particles
+    def __init__(self, particles, transition_model):
+        self.particles = particles
         self.transition_model = transition_model
 
     def update(self, action, observation, observation_model):
         new_particles = []
         for particle in self.particles:
-            next_particle = self.transition_model.sample(particle, action)
+            next_particle = self.transition_model.sample(particle, action) # TODO: add uncertainty in transition model?
             obs_prob = observation_model.probability(observation, next_particle, action)
             if obs_prob > 0:
-                new_particles.append((next_particle, obs_prob))  # Track particles with weights
+                new_particles.append((next_particle, obs_prob))
 
-        # Handle particle resampling with weighted particles
         if not new_particles:
             new_particles = [(self.transition_model.sample(random.choice(self.particles), action), 1) for _ in range(len(self.particles))]
 
-        # Normalize weights and resample
         weights = np.array([w for _, w in new_particles])
         weights /= weights.sum()
-        self.particles = random.choices([p for p, _ in new_particles], weights=weights, k=len(self.particles))
 
-
-# Helper function
-def interpolate_line_with_yaw(start_point, end_point, num_points=20):
-    """
-    Interpolates a line segment between two points with yaw values and returns a list of (x, y, yaw) tuples.
-
-    Parameters:
-    start_point (tuple): Coordinates and yaw of the start point (x1, y1, yaw1).
-    end_point (tuple): Coordinates and yaw of the end point (x2, y2, yaw2).
-    num_points (int): Number of interpolated points. Default is 20.
-
-    Returns:
-    list: A list of tuples, each containing (x, y, yaw).
-    """
-    # Extract start and end coordinates and yaw
-    x1, y1, yaw1 = start_point
-    x2, y2, yaw2 = end_point
-
-    # Generate interpolated x, y, and yaw values
-    x_values = np.linspace(x1, x2, num_points)
-    y_values = np.linspace(y1, y2, num_points)
-    yaw_values = np.linspace(yaw1, yaw2, num_points)
-
-    # Combine x, y, and yaw into a list of tuples
-    interpolated_points = [(x, y, yaw) for x, y, yaw in zip(x_values, y_values, yaw_values)]
-
-    return interpolated_points
-
-def simple_no_left_4_way_intersection():
-    map = TopoMap()
-    l = 2.0 # half lane width
-
-    in1 = interpolate_line_with_yaw([6*l, 1*l, np.pi], [4*l, 1*l, np.pi])
-    in2 = interpolate_line_with_yaw([-1*l, 6*l, -np.pi/2], [-1*l, 4*l, -np.pi/2])
-    in3 = interpolate_line_with_yaw([-6*l, -1*l, 0], [-4*l, -1*l, 0])
-    in4 = interpolate_line_with_yaw([1*l, -6*l, np.pi/2], [1*l, -4*l, np.pi/2])
-
-    in5 = interpolate_line_with_yaw([4*l, 1*l, np.pi], [1*l, 1*l, np.pi])
-    in6 = interpolate_line_with_yaw([-1*l, 4*l, -np.pi/2], [-1*l, 1*l, -np.pi/2])
-    in7 = interpolate_line_with_yaw([-4*l, -1*l, 0], [-1*l, -1*l, 0])
-    in8 = interpolate_line_with_yaw([1*l, -4*l, np.pi/2], [1*l, -1*l, np.pi/2])
-
-    mid1 = interpolate_line_with_yaw([1*l, 1*l, np.pi], [-1*l, 1*l, np.pi])
-    mid2 = interpolate_line_with_yaw([-1*l, 1*l, -np.pi/2], [-1*l, -1*l, -np.pi/2])
-    mid3 = interpolate_line_with_yaw([-1*l, -1*l, 0], [1*l, -1*l, 0])
-    mid4 = interpolate_line_with_yaw([1*l, -1*l, np.pi/2], [1*l, 1*l, np.pi/2])
-
-    out1 = interpolate_line_with_yaw([1*l, -1*l, 0], [4*l, -1*l, 0])
-    out2 = interpolate_line_with_yaw([1*l, 1*l, np.pi/2], [1*l, 4*l, np.pi/2])
-    out3 = interpolate_line_with_yaw([-1*l, 1*l, np.pi], [-4*l, 1*l, np.pi])
-    out4 = interpolate_line_with_yaw([-1*l, -1*l, -np.pi/2], [-1*l, -4*l, -np.pi/2])
-
-    out5 = interpolate_line_with_yaw([4*l, -1*l, 0], [6*l, -1*l, 0])
-    out6 = interpolate_line_with_yaw([1*l, 4*l, np.pi/2], [1*l, 6*l, np.pi/2])
-    out7 = interpolate_line_with_yaw([-4*l, 1*l, np.pi], [-6*l, 1*l, np.pi])
-    out8 = interpolate_line_with_yaw([-1*l, -4*l, -np.pi/2], [-1*l, -6*l, -np.pi/2])
-
-    turn1 = interpolate_line_with_yaw([4*l, 1*l, np.pi], [1*l, 4*l, np.pi/2])
-    turn2 = interpolate_line_with_yaw([-1*l, 4*l, -np.pi/2], [-4*l, 1*l, -np.pi])
-    turn3 = interpolate_line_with_yaw([-4*l, -1*l, 0], [-1*l, -4*l, -np.pi/2])
-    turn4 = interpolate_line_with_yaw([1*l, -4*l, np.pi/2], [4*l, -1*l, 0])
-
-    map.add_waypoints(0, in1)
-    map.add_waypoints(1, in5)
-    map.add_connection(0, 1)
-    map.add_waypoints(2, turn1)
-    map.add_connection(0, 2)
-
-    map.add_waypoints(3, in2)
-    map.add_waypoints(4, in6)
-    map.add_connection(3, 4)
-    map.add_waypoints(5, turn2)
-    map.add_connection(3, 5)
-
-    map.add_waypoints(6, in3)
-    map.add_waypoints(7, in7)
-    map.add_connection(6, 7)
-    map.add_waypoints(8, turn3)
-    map.add_connection(6, 8)
-
-    map.add_waypoints(9, in4)
-    map.add_waypoints(10, in8)
-    map.add_connection(9, 10)
-    map.add_waypoints(11, turn4)
-    map.add_connection(9, 11)
-
-    map.add_waypoints(12, mid1)
-    map.add_connection(12, 1)
-    map.add_waypoints(13, mid2)
-    map.add_connection(13, 4)
-    map.add_waypoints(14, mid3)
-    map.add_connection(14, 7)
-    map.add_waypoints(15, mid4)
-    map.add_connection(15, 10)
-    map.add_confliction(1, 15)
-    map.add_confliction(4, 12)
-    map.add_confliction(7, 13)
-    map.add_confliction(10, 14)
-
-    map.add_waypoints(16, out1)
-    map.add_connection(14, 16)
-    map.add_confliction(16, 11)
-    map.add_waypoints(17, out2)
-    map.add_connection(15, 17)
-    map.add_confliction(17, 2)
-    map.add_waypoints(18, out3)
-    map.add_connection(12, 18)
-    map.add_confliction(18, 5)
-    map.add_waypoints(19, out4)
-    map.add_connection(13, 19)
-    map.add_confliction(19, 8)
-
-    map.add_waypoints(20, out5)
-    map.add_connection(11, 20)
-    map.add_connection(16, 20)
-    map.add_waypoints(21, out6)
-    map.add_connection(2, 21)
-    map.add_connection(17, 21)
-    map.add_waypoints(22, out7)
-    map.add_connection(5, 22)
-    map.add_connection(18, 22)
-    map.add_waypoints(23, out8)
-    map.add_connection(8, 23)
-    map.add_connection(19, 23)
-
-    return map
+        # Create and return a new Belief instance
+        random_particles = random.choices([p for p, _ in new_particles], weights=weights, k=len(self.particles))
+        return Belief(random_particles, self.transition_model)
