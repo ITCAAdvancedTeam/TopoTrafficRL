@@ -427,35 +427,53 @@ class TransitionModel():
         return pa * pb
 
     def sample(self, state, action):
-        # TODO: consider conflicting respond from other vehicle as well
-        next_state = []
+        # TODO: debugging this: check if it actually generate randomized states
+        next_state_candidates = []
         k = len(state.data)
-        next_terminal = state.terminate
-        for i in range(k):
-            # Create the data tuple according to stype
-            new_s = state.data[i][0] - state.data[i][1] * TSTEP
-            if new_s < 0.0:
-                next_list = self.map.get_next_waypoints(state.data[i][3])
-                if len(next_list) == 0:
-                    new_r = state.data[i][3]
-                    new_s = 0.0
-                    if i == 0:
-                        next_terminal = True
+        random_cnt = 3
+
+        # Generate multiple action configurations
+        for _ in range(random_cnt):
+            # Fix the ego vehicle's action, randomize actions for conflicting vehicles
+            actions = [action.data] + [random.uniform(-2.0, 2.0) for _ in range(1, k)]
+
+            # Generate the next state based on this configuration
+            candidate_state_data = []
+            next_terminal = state.terminate
+
+            for i in range(k):
+                # Calculate new position
+                new_s = state.data[i][0] - state.data[i][1] * TSTEP
+                if new_s < 0.0:
+                    next_list = self.map.get_next_waypoints(state.data[i][3])
+                    if not next_list:
+                        new_r = state.data[i][3]
+                        new_s = 0.0
+                        if i == 0:
+                            next_terminal = True
+                    else:
+                        new_r = random.choice(next_list)
+                        new_s += self.map.find_length_by_waypoint(new_r)
                 else:
-                    new_r = random.choice(self.map.get_next_waypoints(state.data[i][3]))
-                    new_s = self.map.find_length_by_waypoint(new_r) + new_s
-            else:
-                new_r = state.data[i][3]
-            new_a = action.data if i == 0 else state.data[i][2]
-            new_v = state.data[i][1] + new_a * TSTEP
-            data = (new_s, new_v, new_a, new_r)
-            next_state.append(data)
+                    new_r = state.data[i][3]
 
-        # debug
-        # print("Sampling Next State from state:", state)
-        # print("Generated next state data:", next_state)
+                # Set acceleration
+                new_a = actions[i]
+                new_v = state.data[i][1] + new_a * TSTEP
 
-        return State(next_state, next_terminal)
+                # Append data for this vehicle
+                data = (new_s, new_v, new_a, new_r)
+                candidate_state_data.append(data)
+
+            # Calculate the probability for this candidate state
+            candidate_state = State(candidate_state_data, next_terminal)
+            prob = self.probability(candidate_state, state, action)
+            next_state_candidates.append((candidate_state, prob))
+
+        # Select the candidate state with the highest probability
+        best_state, best_prob = max(next_state_candidates, key=lambda x: x[1])
+
+        return best_state
 
     def argmax(self, state, action):
         """Returns the most likely next state"""

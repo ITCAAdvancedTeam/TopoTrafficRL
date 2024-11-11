@@ -156,9 +156,9 @@ class POMCPOWSolver:
 
             observation = self.observation_model.sample(next_state, self.action)
             observations.append(observation)
-        print(f"Sampled next states and observations based on all particles at action: {self.action}")
-        for i, (state, obs) in enumerate(zip(next_states, observations)):
-            print(f"  Particle {i} -> Next State: {state}, Observation: {obs}")
+        # print(f"Sampled next states and observations based on all particles at action: {self.action}")
+        # for i, (state, obs) in enumerate(zip(next_states, observations)):
+        #     print(f"  Particle {i} -> Next State: {state}, Observation: {obs}")
 
         # Update belief based on the action and observation
         self.belief = self.belief.update(self.action, observation, self.observation_model)
@@ -206,6 +206,7 @@ class Belief:
         self.transition_model = transition_model
 
     def update(self, action, observation, observation_model):
+        # TODO: need to figure out why all particles are the same
         new_particles = []
         for particle in self.particles:
             next_particle = self.transition_model.sample(particle, action) # TODO: add uncertainty in transition model?
