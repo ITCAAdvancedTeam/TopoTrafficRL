@@ -147,7 +147,7 @@ class POMCPOWSolver:
         return Action(action_value)
 
     def simulate(self, node, depth):
-        # TODO: need to find out why the visit count is not relevant to the value but to the sequence of the node creation
+        # TODO: need to find out how to set the value for action progressive widening
         indent = " + " * (4 - depth)
         print(f'{indent} simulate - Depth: {depth}')
         if depth == 0:
