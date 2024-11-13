@@ -427,51 +427,59 @@ class TransitionModel():
         return pa * pb
 
     def sample(self, state, action):
-        # TODO: debugging this: check if it actually generate randomized states
+        # Debugging: check if it actually generates randomized states
         next_state_candidates = []
         k = len(state.data)
         random_cnt = 3
 
+        # print(f"[DEBUG] Generating {random_cnt} randomized configurations for next states")
+
         # Generate multiple action configurations
-        for _ in range(random_cnt):
+        for config_idx in range(random_cnt):
             # Fix the ego vehicle's action, randomize actions for conflicting vehicles
             actions = [action.data] + [random.uniform(-2.0, 2.0) for _ in range(1, k)]
+            # print(f"[DEBUG] Configuration {config_idx + 1}: Actions = {actions}")
 
             # Generate the next state based on this configuration
             candidate_state_data = []
             next_terminal = state.terminate
 
             for i in range(k):
-                # Calculate new position
+                # Calculate new position based on current velocity
                 new_s = state.data[i][0] - state.data[i][1] * TSTEP
-                if new_s < 0.0:
+                if new_s < 0.0:  # Check if vehicle reaches end of path segment
                     next_list = self.map.get_next_waypoints(state.data[i][3])
-                    if not next_list:
+                    if not next_list:  # No more waypoints
                         new_r = state.data[i][3]
                         new_s = 0.0
                         if i == 0:
-                            next_terminal = True
+                            next_terminal = True  # Mark as terminal if ego vehicle
                     else:
                         new_r = random.choice(next_list)
-                        new_s += self.map.find_length_by_waypoint(new_r)
+                        new_s += self.map.find_length_by_waypoint(new_r)  # Wrap to next waypoint
                 else:
                     new_r = state.data[i][3]
 
-                # Set acceleration
+                # Set acceleration for ego and conflicting vehicles
                 new_a = actions[i]
                 new_v = state.data[i][1] + new_a * TSTEP
 
                 # Append data for this vehicle
                 data = (new_s, new_v, new_a, new_r)
                 candidate_state_data.append(data)
+                # print(f"[DEBUG] Vehicle {i} -> New Position: {new_s}, New Velocity: {new_v}, Acceleration: {new_a}, Waypoint: {new_r}")
 
             # Calculate the probability for this candidate state
             candidate_state = State(candidate_state_data, next_terminal)
             prob = self.probability(candidate_state, state, action)
+            # print(f"[DEBUG] Probability of Configuration {config_idx + 1}: {prob}")
+
+            # Append candidate state with its probability
             next_state_candidates.append((candidate_state, prob))
 
         # Select the candidate state with the highest probability
         best_state, best_prob = max(next_state_candidates, key=lambda x: x[1])
+        # print(f"[DEBUG] Selected State with Highest Probability: {best_prob}")
 
         return best_state
 

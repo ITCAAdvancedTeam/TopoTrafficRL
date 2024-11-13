@@ -56,11 +56,12 @@ class TreeNode:
                 print(f"{indent}    Node(level={level + 1}, visit_count=0, value=0.0) - Placeholder for unexpanded action")
 
 
-
 class POMCPOWSolver:
     def __init__(self, belief, transition_model, observation_model, reward_model, policy_model, max_depth=3, num_sims=100):
-        self.init_belief = copy.deepcopy(belief)
-        self.belief = belief
+        self.init_belief = belief
+        self.init_action = Action(belief.particles[0].data[0][2])
+        self.belief = copy.deepcopy(self.init_belief)
+        self.action = copy.deepcopy(self.init_action)
         self.transition_model = transition_model
         self.observation_model = observation_model
         self.reward_model = reward_model
@@ -70,8 +71,7 @@ class POMCPOWSolver:
         self.exploration_constant = 1.0  # UCB exploration constant
         self.ka = 1.0  # Controls the rate of action expansion
         self.alpha_a = 0.5  # Governs widening dependence on visits
-        self.root = TreeNode(belief)
-        self.action = Action(belief.particles[0].data[0][2])
+        self.root = TreeNode(copy.deepcopy(belief))
 
 
     def plan(self):
@@ -79,9 +79,12 @@ class POMCPOWSolver:
 
         # Run simulations, resetting to the initial root each time
         for _ in range(self.num_sims):
+            print("-----------------------------------------------------------")
             self.root.print_tree()
+            print("-----------------------------------------------------------")
             current_node = self.root  # Start each simulation from the initial root
             self.belief = self.init_belief
+            self.action = self.init_action
             self.simulate(current_node, depth=self.max_depth)
 
         # Select the best action from the root node after simulations
@@ -99,17 +102,17 @@ class POMCPOWSolver:
         """
         action_count = len(node.children)  # Number of actions currently expanded
         widening_threshold = int(self.ka * (node.visit_count ** self.alpha_a))
+        new_action = None
 
         # Add new actions if below the widening threshold
-        if node.visit_count == 0 or action_count <= widening_threshold:
+        if action_count <= widening_threshold:
             new_action = self.sample_continuous_action()
             while new_action in node.children:  # Ensure uniqueness
                 new_action = self.sample_continuous_action()
-            node.children[new_action] = TreeNode(self.belief)  # Add new action node
             print(f"add new action: {new_action}")
 
         # Select the action with the highest UCB score
-        return self.select_ucb_action(node)
+        return new_action
 
     def select_ucb_action(self, node):
         """
@@ -143,27 +146,40 @@ class POMCPOWSolver:
         return Action(action_value)
 
     def simulate(self, node, depth):
-        print(f'[DEBUG] simulate - Depth: {depth}')
+        # TODO: need to find out why the visit count is not relevant to the value but to the sequence of the node creation
+        # indent = " + " * (4 - depth)
+        # print(f'{indent} simulate - Depth: {depth}')
         if depth == 0:
             return 0
 
-        # Sample the next state and observation
+        # Choose action based on progressive widening if needed
+        new_action = self.action_progressive_widening(node)
+        if (new_action != None):
+            # Sample the next state and observation
+            new_next_states = []
+            observations = []
+            for particle in self.belief.particles:
+                next_state = self.transition_model.sample(particle, new_action)
+                new_next_states.append(next_state)
+
+                observation = self.observation_model.sample(next_state, new_action)
+                observations.append(observation)
+            # print(f"{indent} new action: {new_action}")
+
+            # Update belief based on the action and observation
+            new_belief = self.belief.update(new_action, observations, self.observation_model)
+            node.children[new_action] = TreeNode(new_belief)  # Add new action node
+
+        self.action = self.select_ucb_action(node)
+
         next_states = []
-        observations = []
         for particle in self.belief.particles:
             next_state = self.transition_model.sample(particle, self.action)
             next_states.append(next_state)
 
-            observation = self.observation_model.sample(next_state, self.action)
-            observations.append(observation)
-        # print(f"Sampled next states and observations based on all particles at action: {self.action}")
+        self.belief = node.children[self.action].belief
         # for i, (state, obs) in enumerate(zip(next_states, observations)):
         #     print(f"  Particle {i} -> Next State: {state}, Observation: {obs}")
-
-        # Update belief based on the action and observation
-        self.belief = self.belief.update(self.action, observation, self.observation_model)
-        node.children[self.action] = TreeNode(self.belief)  # Add new action node
-        next_node = node.children[self.action]
 
         # Calculate immediate reward as an average over all particles
         immediate_rewards = []
@@ -172,11 +188,12 @@ class POMCPOWSolver:
             immediate_rewards.append(reward)
         immediate_reward = np.mean(immediate_rewards)
 
-        # Choose action based on UCB or progressive widening if needed
-        self.action = self.action_progressive_widening(node.children[self.action])
+        # print(f"{indent} action: {self.action}")
+        # for i, particle in enumerate(self.belief.particles[:3]):  # Print only the first few particles for brevity
+        #     print(f"{indent}  Particle {i}: {particle}")
 
         # Otherwise, simulate recursively down the tree
-        future_reward = self.simulate(next_node, depth - 1)
+        future_reward = self.simulate(node.children[self.action], depth - 1)
 
         total_reward = immediate_reward + 0.95 * future_reward
         node.update(total_reward)
@@ -205,11 +222,10 @@ class Belief:
         self.particles = particles
         self.transition_model = transition_model
 
-    def update(self, action, observation, observation_model):
-        # TODO: need to figure out why all particles are the same
+    def update(self, action, observations, observation_model):
         new_particles = []
-        for particle in self.particles:
-            next_particle = self.transition_model.sample(particle, action) # TODO: add uncertainty in transition model?
+        for particle, observation in zip(self.particles, observations):
+            next_particle = self.transition_model.sample(particle, action)
             obs_prob = observation_model.probability(observation, next_particle, action)
             if obs_prob > 0:
                 new_particles.append((next_particle, obs_prob))
