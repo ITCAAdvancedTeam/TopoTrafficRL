@@ -109,7 +109,7 @@ class POMCPOWSolver:
             new_action = self.sample_continuous_action()
             while new_action in node.children:  # Ensure uniqueness
                 new_action = self.sample_continuous_action()
-            print(f"add new action: {new_action}")
+            print(f"  add new action: {new_action}")
 
         # Select the action with the highest UCB score
         return new_action
@@ -126,12 +126,13 @@ class POMCPOWSolver:
         """
         best_action = None
         best_ucb_score = float('-inf')
-
+        print(f" ucb analysis starts for node with action {self.belief.particles[0].data[0][2]}")
         for action, child_node in node.children.items():
             # Calculate UCB score for the child node
             exploitation = child_node.value
             exploration = self.exploration_constant * np.sqrt(np.log(node.visit_count + 1) / (child_node.visit_count + 1))
             ucb_score = exploitation + exploration
+            print(f" node visit count {node.visit_count}, child node visit count {child_node.visit_count}, child node value {child_node.value} ")
 
             # Update the best action based on the UCB score
             if ucb_score > best_ucb_score:
@@ -147,8 +148,8 @@ class POMCPOWSolver:
 
     def simulate(self, node, depth):
         # TODO: need to find out why the visit count is not relevant to the value but to the sequence of the node creation
-        # indent = " + " * (4 - depth)
-        # print(f'{indent} simulate - Depth: {depth}')
+        indent = " + " * (4 - depth)
+        print(f'{indent} simulate - Depth: {depth}')
         if depth == 0:
             return 0
 
@@ -188,7 +189,7 @@ class POMCPOWSolver:
             immediate_rewards.append(reward)
         immediate_reward = np.mean(immediate_rewards)
 
-        # print(f"{indent} action: {self.action}")
+        print(f"{indent} action: {self.action}")
         # for i, particle in enumerate(self.belief.particles[:3]):  # Print only the first few particles for brevity
         #     print(f"{indent}  Particle {i}: {particle}")
 
