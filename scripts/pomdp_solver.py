@@ -73,6 +73,12 @@ class POMCPOWSolver:
         self.alpha_a = 0.5  # Governs widening dependence on visits
         self.root = TreeNode(copy.deepcopy(belief))
 
+    def reset(self, belief):
+        self.init_belief = belief
+        self.init_action = Action(belief.particles[0].data[0][2])
+        self.belief = copy.deepcopy(self.init_belief)
+        self.action = copy.deepcopy(self.init_action)
+        self.root = TreeNode(copy.deepcopy(belief))
 
     def plan(self):
         # print(f'[DEBUG] Starting plan method')

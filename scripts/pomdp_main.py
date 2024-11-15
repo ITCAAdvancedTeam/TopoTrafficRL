@@ -13,10 +13,11 @@ Functions:
     - main: Initializes the problem components and runs a few steps of the solver for testing.
 """
 
-import random
 import numpy as np
 from pomdp_core import *
 from pomdp_solver import *
+import matplotlib.pyplot as plt
+from tqdm import tqdm  # For progress bar
 
 # Helper function
 def interpolate_line_with_yaw(start_point, end_point, num_points=20):
@@ -46,6 +47,7 @@ def interpolate_line_with_yaw(start_point, end_point, num_points=20):
     return interpolated_points
 
 def simple_no_left_4_way_intersection():
+    # TODO: there is a map connection issue after 10 and 1
     map = TopoMap()
     l = 2.0 # half lane width
 
@@ -79,71 +81,147 @@ def simple_no_left_4_way_intersection():
     turn3 = interpolate_line_with_yaw([-4*l, -1*l, 0], [-1*l, -4*l, -np.pi/2])
     turn4 = interpolate_line_with_yaw([1*l, -4*l, np.pi/2], [4*l, -1*l, 0])
 
-    map.add_waypoints(0, in1)
-    map.add_waypoints(1, in5)
-    map.add_connection(0, 1)
-    map.add_waypoints(2, turn1)
-    map.add_connection(0, 2)
+    wdict = {
+        "in1": 0,
+        "in2": 3,
+        "in3": 6,
+        "in4": 9,
+        "in5": 1,
+        "in6": 4,
+        "in7": 7,
+        "in8": 10,
+        "mid1": 12,
+        "mid2": 13,
+        "mid3": 14,
+        "mid4": 15,
+        "out1": 16,
+        "out2": 17,
+        "out3": 18,
+        "out4": 19,
+        "out5": 20,
+        "out6": 21,
+        "out7": 22,
+        "out8": 23,
+        "turn1": 2,
+        "turn2": 5,
+        "turn3": 8,
+        "turn4": 11
+    }
 
-    map.add_waypoints(3, in2)
-    map.add_waypoints(4, in6)
-    map.add_connection(3, 4)
-    map.add_waypoints(5, turn2)
-    map.add_connection(3, 5)
+    # Add waypoints
+    map.add_waypoints(wdict["in1"], in1)
+    map.add_waypoints(wdict["in5"], in5)
+    map.add_waypoints(wdict["turn1"], turn1)
+    map.add_waypoints(wdict["in2"], in2)
+    map.add_waypoints(wdict["in6"], in6)
+    map.add_waypoints(wdict["turn2"], turn2)
+    map.add_waypoints(wdict["in3"], in3)
+    map.add_waypoints(wdict["in7"], in7)
+    map.add_waypoints(wdict["turn3"], turn3)
+    map.add_waypoints(wdict["in4"], in4)
+    map.add_waypoints(wdict["in8"], in8)
+    map.add_waypoints(wdict["turn4"], turn4)
+    map.add_waypoints(wdict["mid1"], mid1)
+    map.add_waypoints(wdict["mid2"], mid2)
+    map.add_waypoints(wdict["mid3"], mid3)
+    map.add_waypoints(wdict["mid4"], mid4)
+    map.add_waypoints(wdict["out1"], out1)
+    map.add_waypoints(wdict["out2"], out2)
+    map.add_waypoints(wdict["out3"], out3)
+    map.add_waypoints(wdict["out4"], out4)
+    map.add_waypoints(wdict["out5"], out5)
+    map.add_waypoints(wdict["out6"], out6)
+    map.add_waypoints(wdict["out7"], out7)
+    map.add_waypoints(wdict["out8"], out8)
 
-    map.add_waypoints(6, in3)
-    map.add_waypoints(7, in7)
-    map.add_connection(6, 7)
-    map.add_waypoints(8, turn3)
-    map.add_connection(6, 8)
+    map.add_connection(wdict["in1"], wdict["in5"])
+    map.add_connection(wdict["in1"], wdict["turn1"])
+    map.add_connection(wdict["in2"], wdict["in6"])
+    map.add_connection(wdict["in2"], wdict["turn2"])
+    map.add_connection(wdict["in3"], wdict["in7"])
+    map.add_connection(wdict["in3"], wdict["turn3"])
+    map.add_connection(wdict["in4"], wdict["in8"])
+    map.add_connection(wdict["in4"], wdict["turn4"])
+    map.add_connection(wdict["in5"], wdict["mid1"])
+    map.add_connection(wdict["in6"], wdict["mid2"])
+    map.add_connection(wdict["in7"], wdict["mid3"])
+    map.add_connection(wdict["in8"], wdict["mid4"])
+    map.add_connection(wdict["mid3"], wdict["out1"])
+    map.add_connection(wdict["mid4"], wdict["out2"])
+    map.add_connection(wdict["mid1"], wdict["out3"])
+    map.add_connection(wdict["mid2"], wdict["out4"])
+    map.add_connection(wdict["turn4"], wdict["out5"])
+    map.add_connection(wdict["out1"], wdict["out5"])
+    map.add_connection(wdict["turn1"], wdict["out6"])
+    map.add_connection(wdict["out2"], wdict["out6"])
+    map.add_connection(wdict["turn2"], wdict["out7"])
+    map.add_connection(wdict["out3"], wdict["out7"])
+    map.add_connection(wdict["turn3"], wdict["out8"])
+    map.add_connection(wdict["out4"], wdict["out8"])
 
-    map.add_waypoints(9, in4)
-    map.add_waypoints(10, in8)
-    map.add_connection(9, 10)
-    map.add_waypoints(11, turn4)
-    map.add_connection(9, 11)
-
-    map.add_waypoints(12, mid1)
-    map.add_connection(12, 1)
-    map.add_waypoints(13, mid2)
-    map.add_connection(13, 4)
-    map.add_waypoints(14, mid3)
-    map.add_connection(14, 7)
-    map.add_waypoints(15, mid4)
-    map.add_connection(15, 10)
-    map.add_confliction(1, 15)
-    map.add_confliction(4, 12)
-    map.add_confliction(7, 13)
-    map.add_confliction(10, 14)
-
-    map.add_waypoints(16, out1)
-    map.add_connection(14, 16)
-    map.add_confliction(16, 11)
-    map.add_waypoints(17, out2)
-    map.add_connection(15, 17)
-    map.add_confliction(17, 2)
-    map.add_waypoints(18, out3)
-    map.add_connection(12, 18)
-    map.add_confliction(18, 5)
-    map.add_waypoints(19, out4)
-    map.add_connection(13, 19)
-    map.add_confliction(19, 8)
-
-    map.add_waypoints(20, out5)
-    map.add_connection(11, 20)
-    map.add_connection(16, 20)
-    map.add_waypoints(21, out6)
-    map.add_connection(2, 21)
-    map.add_connection(17, 21)
-    map.add_waypoints(22, out7)
-    map.add_connection(5, 22)
-    map.add_connection(18, 22)
-    map.add_waypoints(23, out8)
-    map.add_connection(8, 23)
-    map.add_connection(19, 23)
+    # Add conflicts
+    map.add_confliction(wdict["in5"], wdict["mid4"])
+    map.add_confliction(wdict["in6"], wdict["mid1"])
+    map.add_confliction(wdict["in7"], wdict["mid2"])
+    map.add_confliction(wdict["in8"], wdict["mid3"])
+    map.add_confliction(wdict["out1"], wdict["turn4"])
+    map.add_confliction(wdict["out2"], wdict["turn1"])
+    map.add_confliction(wdict["out3"], wdict["turn2"])
+    map.add_confliction(wdict["out4"], wdict["turn3"])
 
     return map
 
+def visualize_step(map, state, action, observation, step):
+    """
+    Visualize the map, current state, action, and observation.
+
+    Parameters:
+        map (TopoMap): The intersection map.
+        state (State): The current state of the system.
+        action (Action): The action taken.
+        observation (Observation): The observation received.
+        step (int): The current step number.
+    """
+    plt.figure(figsize=(10, 10))
+    plt.title(f"Step {step}")
+
+    # Plot the map waypoints
+    for waypoint_id, waypoints in map.waypoints.items():
+        x = [p[0] for p in waypoints]
+        y = [p[1] for p in waypoints]
+        plt.plot(x, y)
+
+    # Plot the vehicles in the current state
+    for vehicle_idx, (s, v, a, waypoint_id) in enumerate(state.data):
+        waypoint = map.find_waypoint_by_length(waypoint_id, s)
+        if waypoint is not None:
+            x, y, yaw = waypoint
+            plt.scatter(x, y, color="red", label=f"Vehicle {vehicle_idx} (State)")
+            plt.arrow(
+                x, y, 0.5 * np.cos(yaw), 0.5 * np.sin(yaw),
+                head_width=0.3, head_length=0.5, fc="red", ec="red"
+            )
+
+    # Plot the vehicles in the observation
+    for obs_idx, (x, y, vx, vy) in enumerate(observation.data):
+        plt.scatter(x, y, color="blue", alpha=0.5, label=f"Vehicle {obs_idx} (Obs)")
+        plt.arrow(
+            x, y, 0.5 * vx, 0.5 * vy,
+            head_width=0.3, head_length=0.5, fc="blue", ec="blue"
+        )
+
+    # Annotate the action
+    plt.text(0.05, 0.95, f"Action: {action.data:.2f} m/s²", transform=plt.gca().transAxes, fontsize=12, color="green")
+
+    plt.legend()
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.axis("equal")
+    plt.grid()
+    plt.show()
+
+
+# Main Logic
 map = simple_no_left_4_way_intersection()
 # Initialize components from pomdp_core
 transition_model = TransitionModel(map)
@@ -155,7 +233,7 @@ policy_model = PolicyModel()
 s0 = map.find_length_by_waypoint(9)
 s1 = map.find_length_by_waypoint(0)
 initial_state = State([(s0, 8.0, 0.0, 9), (s1, 8.0, 0.0, 0)])
-num_particles = 100  # Number of particles in the belief
+num_particles = 10  # Number of particles in the belief
 
 # Initialize belief with particles around the initial state
 belief = Belief([initial_state] * num_particles, transition_model=transition_model)
@@ -167,25 +245,39 @@ solver = POMCPOWSolver(
     observation_model=observation_model,
     reward_model=reward_model,
     policy_model=policy_model,
-    max_depth=3,
+    max_depth=5,
     num_sims=20
 )
 
-# Run a test plan loop
-# TODO: integrate with gym and see if the computation is too heavy then use discreted action space
-for step in range(5):  # Run for a few steps to observe behavior
-    print(f"Step {step}")
-    action = solver.plan()
-    print(f"Chosen Action: {action.data}")
+# Create lists to store step-wise data for visualization
+steps = []
+states = []
+actions = []
+observations = []
 
-    # Simulate the environment response (observation) for this example
+# Run a test plan loop
+# TODO: integrate with gym with fresh initialization each iteration
+# and see if the computation is too heavy then use discreted action space
+for step in tqdm(range(20), desc="Simulating steps"):  # Progress bar for 30 steps
+    action = solver.plan()
     next_state = transition_model.sample(initial_state, action)
     observation = observation_model.sample(next_state, action)
+    belief = belief.update(action, [observation] * num_particles, observation_model)
 
-    print(f"Observation: {observation.data}")
+    # Store step data for later visualization
+    steps.append(step)
+    states.append(next_state)
+    actions.append(action)
+    observations.append(observation)
 
-    # Update initial state for next loop iteration
+    # Update initial state and solver for next iteration
     initial_state = next_state
+    solver.reset(belief=belief)
 
-    print(f"Updated State: {initial_state.data}")
+# Visualization after the loop
+for step, state, action, observation in zip(steps, states, actions, observations):
+    print(f"Step {step} Observation: {observation.data}")
+    print(f"Chosen Action: {action.data}")
+    print(f"Updated State: {state.data}")
     print("------")
+    visualize_step(map, state, action, observation, step)
