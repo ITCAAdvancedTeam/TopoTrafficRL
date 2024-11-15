@@ -168,10 +168,11 @@ solver = POMCPOWSolver(
     reward_model=reward_model,
     policy_model=policy_model,
     max_depth=3,
-    num_sims=100
+    num_sims=20
 )
 
 # Run a test plan loop
+# TODO: integrate with gym and see if the computation is too heavy then use discreted action space
 for step in range(5):  # Run for a few steps to observe behavior
     print(f"Step {step}")
     action = solver.plan()

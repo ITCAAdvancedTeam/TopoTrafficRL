@@ -509,9 +509,9 @@ class RewardModel():
         self.d_safe = 3.0
         self.speed_limit = [4.0, 12.0]
         self.acceleration_limit = [-2.0, 2.0]
-        self.K1 = 20.0 # collision reward
-        self.K2 = 10.0 # velocity reward
-        self.K3 = 10.0 # acceleration reward
+        self.K1 = 10.0 # collision reward
+        self.K2 = 20.0 # velocity reward
+        self.K3 = 15.0 # acceleration reward
     def sample(self, state, action, next_state):
         # deterministic
         if state.terminate:
@@ -530,12 +530,13 @@ class RewardModel():
                 di = np.linalg.norm(ego_point[:2] - pointi[:2])
                 r1 = 1 / (1 + np.exp(2 * (self.d_safe - di))) - 0.5
                 r2 = norm.pdf(state.data[i][1], loc=8.0, scale=4.0)
-                r3 = norm.pdf(state.data[i][1], loc=0.0, scale=2.0)
+                r3 = norm.pdf(state.data[i][2], loc=0.0, scale=2.0)
                 R1.append(r1)
                 R2.append(r2)
                 R3.append(r3)
         reward = self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
         # print("reward: ", reward)
+        # print(f"reward: R1 = {np.prod(R1) ** (1 / len(R1))}, R2 = {np.prod(R2) ** (1 / len(R2))}, R3 = {np.prod(R3) ** (1 / len(R3))}")
         return reward
 
 # Policy Model

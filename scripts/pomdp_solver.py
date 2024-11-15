@@ -32,7 +32,7 @@ class TreeNode:
         """Updates the node's value and visit count based on observed reward."""
         self.visit_count += 1
         self.value += (reward - self.value) / self.visit_count
-        print(f'[DEBUG] Updating TreeNode with reward: {reward} --> new visit_count: {self.visit_count}, new value: {self.value}')
+        # print(f'[DEBUG] Updating TreeNode with reward: {reward} --> new visit_count: {self.visit_count}, new value: {self.value}')
 
     def print_tree(self, level=0):
         """
@@ -75,13 +75,13 @@ class POMCPOWSolver:
 
 
     def plan(self):
-        print(f'[DEBUG] Starting plan method')
+        # print(f'[DEBUG] Starting plan method')
 
         # Run simulations, resetting to the initial root each time
         for _ in range(self.num_sims):
-            print("-----------------------------------------------------------")
-            self.root.print_tree()
-            print("-----------------------------------------------------------")
+            # print("-----------------------------------------------------------")
+            # self.root.print_tree()
+            # print("-----------------------------------------------------------")
             current_node = self.root  # Start each simulation from the initial root
             self.belief = self.init_belief
             self.action = self.init_action
@@ -109,7 +109,7 @@ class POMCPOWSolver:
             new_action = self.sample_continuous_action()
             while new_action in node.children:  # Ensure uniqueness
                 new_action = self.sample_continuous_action()
-            print(f"  add new action: {new_action}")
+            # print(f"  add new action: {new_action}")
 
         # Select the action with the highest UCB score
         return new_action
@@ -126,13 +126,13 @@ class POMCPOWSolver:
         """
         best_action = None
         best_ucb_score = float('-inf')
-        print(f" ucb analysis starts for node with action {self.belief.particles[0].data[0][2]}")
+        # print(f" ucb analysis starts for node with action {self.belief.particles[0].data[0][2]}")
         for action, child_node in node.children.items():
             # Calculate UCB score for the child node
             exploitation = child_node.value
             exploration = self.exploration_constant * np.sqrt(np.log(node.visit_count + 1) / (child_node.visit_count + 1))
             ucb_score = exploitation + exploration
-            print(f" node visit count {node.visit_count}, child node visit count {child_node.visit_count}, child node value {child_node.value} ")
+            # print(f" node visit count {node.visit_count}, child node visit count {child_node.visit_count}, child node value {child_node.value} ")
 
             # Update the best action based on the UCB score
             if ucb_score > best_ucb_score:
@@ -147,9 +147,8 @@ class POMCPOWSolver:
         return Action(action_value)
 
     def simulate(self, node, depth):
-        # TODO: need to find out how to set the value for action progressive widening
-        indent = " + " * (4 - depth)
-        print(f'{indent} simulate - Depth: {depth}')
+        # indent = " + " * (4 - depth)
+        # print(f'{indent} simulate - Depth: {depth}')
         if depth == 0:
             return 0
 
@@ -170,30 +169,22 @@ class POMCPOWSolver:
             # Update belief based on the action and observation
             new_belief = self.belief.update(new_action, observations, self.observation_model)
             node.children[new_action] = TreeNode(new_belief)  # Add new action node
-
-        self.action = self.select_ucb_action(node)
-
-        next_states = []
-        for particle in self.belief.particles:
-            next_state = self.transition_model.sample(particle, self.action)
-            next_states.append(next_state)
-
-        self.belief = node.children[self.action].belief
-        # for i, (state, obs) in enumerate(zip(next_states, observations)):
-        #     print(f"  Particle {i} -> Next State: {state}, Observation: {obs}")
+            self.action = new_action
+        else:
+            self.action = self.select_ucb_action(node)
 
         # Calculate immediate reward as an average over all particles
         immediate_rewards = []
-        for particle, next_state in zip(self.belief.particles, next_states):
+        for particle, next_state in zip(self.belief.particles, node.children[self.action].belief.particles):
             reward = self.reward_model.sample(particle, self.action, next_state)
             immediate_rewards.append(reward)
         immediate_reward = np.mean(immediate_rewards)
 
-        print(f"{indent} action: {self.action}")
-        # for i, particle in enumerate(self.belief.particles[:3]):  # Print only the first few particles for brevity
-        #     print(f"{indent}  Particle {i}: {particle}")
+        self.belief = node.children[self.action].belief
 
-        # Otherwise, simulate recursively down the tree
+        # print(f"{indent} action: {self.action}")
+
+        # Simulate recursively down the tree
         future_reward = self.simulate(node.children[self.action], depth - 1)
 
         total_reward = immediate_reward + 0.95 * future_reward
