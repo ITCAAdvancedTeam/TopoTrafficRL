@@ -1,5 +1,6 @@
-# this is the optimization based solution
-# Firstly, test thes POMCPOW solver
+"""
+This POMDP simulation file is to run POMCPOW solver in gym scenario
+"""
 
 import sys
 import os
@@ -7,9 +8,12 @@ import json
 import importlib
 import gymnasium as gym
 from ttrl_agent.agents.common.factory import load_environment
-from topo_agent import TopoAgent
 from simulation import Simulation
 from utils import show_videos
+import numpy as np
+from pomdp_core import *
+from pomdp_solver import *
+import matplotlib.pyplot as plt
 
 # Change the current working directory to scripts/
 script_path = os.path.dirname(os.path.abspath(__file__))

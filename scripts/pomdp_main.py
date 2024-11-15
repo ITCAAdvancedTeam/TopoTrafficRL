@@ -1,16 +1,5 @@
 """
-This POMDP solver file is designed to address the intersection crossing problem
-by using a particle-based Monte Carlo Planning with Progressive Widening (POMCPOW) solver.
-It leverages models implemented in `pomdp_core.py`, which define the transition, observation,
-and reward dynamics. The solver uses continuous states and actions to plan in an environment
-where state uncertainty is managed by particles.
-
-Classes:
-    - POMCPOWSolver: The primary solver that plans actions based on belief particles.
-    - Belief: Maintains the particle-based belief distribution and updates it with new observations.
-
-Functions:
-    - main: Initializes the problem components and runs a few steps of the solver for testing.
+This POMDP main file is to debug the solver with a simple 4 way intersection and one traffic agent
 """
 
 import numpy as np
