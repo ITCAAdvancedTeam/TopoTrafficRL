@@ -120,7 +120,13 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
     plt.savefig(output_file, dpi=dpi)
     print(f"Road network visualization saved as '{output_file}'")
 
+# Debugging
 visualize_road_network(road)
+
+# Convert gym map to TopoMap
+lanes_dict = road.network.lanes_dict()
+for (from_, to_, i), lane in lanes_dict.items():
+    # TODO!!!
 
 # Load an agent from the class.
 # The agent class must have:
