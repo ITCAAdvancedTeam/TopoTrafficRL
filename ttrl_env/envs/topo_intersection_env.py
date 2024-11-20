@@ -40,7 +40,7 @@ class TopoIntersectionEnv(AbstractEnv):
                     "target_speeds": [0, 4.0, 9.0, 14],
                 },
                 "duration": 12,  # [s]
-                "destination": "o1",
+                "destination": "e1",
                 "controlled_vehicles": 1,
                 "initial_vehicle_count": 10,
                 "spawn_probability": 0.6,
@@ -151,7 +151,7 @@ class TopoIntersectionEnv(AbstractEnv):
             - 0 for vertical left-turns
 
         The code for nodes in the road network is:
-        (o:outer | i:inner + [r:right, l:left, o:out]) + (0:south | 1:west | 2:north | 3:east)
+        (o:outer | i:inner + [r:right, l:left, o:out] | e:exit) + (0:south | 1:west | 2:north | 3:east)
 
         :return: the intersection road
         """
@@ -171,23 +171,19 @@ class TopoIntersectionEnv(AbstractEnv):
                 [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
             )
             # Incoming
-            start = rotation @ np.array(
-                [0.0, access_length + outer_distance]
-            )
+            start = rotation @ np.array([0.0, access_length + outer_distance])
             end = rotation @ np.array([0.0, outer_distance])
             net.add_lane(
-                "o" + str(corner),
+                "ol" + str(corner),
                 "il" + str(corner),
                 StraightLane(
                     start, end, line_types=[s, s], priority=priority, speed_limit=self.config["speed_limit"]
                 ),
             )
-            start = rotation @ np.array(
-                [-lane_width, access_length + outer_distance]
-            )
+            start = rotation @ np.array([-lane_width, access_length + outer_distance])
             end = rotation @ np.array([-lane_width, outer_distance])
             net.add_lane(
-                "o" + str(corner),
+                "or" + str(corner),
                 "ir" + str(corner),
                 StraightLane(
                     start, end, line_types=[c, s], priority=priority, speed_limit=self.config["speed_limit"]
@@ -203,7 +199,8 @@ class TopoIntersectionEnv(AbstractEnv):
                     right_turn_radius,
                     angle + np.radians(0),
                     angle + np.radians(-90),
-                    line_types=[c, s],
+                    clockwise=False,
+                    line_types=[s, n],
                     priority=priority,
                     speed_limit=self.config["speed_limit"],
                 ),
@@ -218,34 +215,33 @@ class TopoIntersectionEnv(AbstractEnv):
                     left_turn_radius,
                     angle + np.radians(180),
                     angle + np.radians(270),
-                    clockwise=False,
-                    line_types=[c, c],
+                    clockwise=True,
+                    line_types=[n, s],
                     priority=priority - 2,
                     speed_limit=self.config["speed_limit"],
                 ),
             )
             # Straight
-            start = rotation @ np.array([lane_width, outer_distance])
-            end = rotation @ np.array([lane_width, -outer_distance])
+            start = rotation @ np.array([-lane_width, outer_distance])
+            end = rotation @ np.array([-lane_width, -outer_distance])
             net.add_lane(
                 "ir" + str(corner),
                 "io" + str((corner + 2) % 4),
                 StraightLane(
-                    start, end, line_types=[s, s], priority=priority, speed_limit=10
+                    start, end, line_types=[s, n], priority=priority, speed_limit=self.config["speed_limit"]
                 ),
             )
             # Exit
-            start = rotation @ np.flip(
-                [-lane_width, access_length + outer_distance], axis=0
-            )
-            end = rotation @ np.flip([-lane_width, outer_distance], axis=0)
+            start = rotation @ np.array([lane_width, outer_distance])
+            end = rotation @ np.array([lane_width, access_length + outer_distance])
             net.add_lane(
-                "io" + str((corner - 1) % 4),
-                "o" + str((corner - 1) % 4),
+                "io" + str(corner),
+                "e" + str(corner),
                 StraightLane(
-                    end, start, line_types=[c, c], priority=priority, speed_limit=10
+                    start, end, line_types=[c, c], priority=priority, speed_limit=10
                 ),
             )
+        # print(f"lane network: {net.graph}")
 
         road = RegulatedRoad(
             network=net,
@@ -269,7 +265,7 @@ class TopoIntersectionEnv(AbstractEnv):
         # Random vehicles
         simulation_steps = 3
         for t in range(n_vehicles - 1):
-            self._spawn_vehicle(np.linspace(0, 80, n_vehicles)[t])
+            self._spawn_vehicle(np.linspace(0, 60, n_vehicles)[t])
         for _ in range(simulation_steps):
             [
                 (
@@ -281,7 +277,7 @@ class TopoIntersectionEnv(AbstractEnv):
 
         # Challenger vehicle
         self._spawn_vehicle(
-            50,
+            longitudinal=40,
             spawn_probability=1,
             must_straight=True,
             position_deviation=0.1,
@@ -291,12 +287,16 @@ class TopoIntersectionEnv(AbstractEnv):
         # Controlled vehicles
         self.controlled_vehicles = []
         for ego_id in range(0, self.config["controlled_vehicles"]):
-            ego_lane = self.road.network.get_lane(
-                (f"o{ego_id % 4}", f"ir{ego_id % 4}", 0)
-            )
-            destination = self.config["destination"] or "o" + str(
-                self.np_random.integers(1, 4)
-            )
+            destination_id = self.np_random.integers(1, 4)
+            destination = self.config["destination"] or "e" + str(destination_id)
+            if (destination_id - ego_id) % 4 == 1:
+                ego_lane = self.road.network.get_lane(
+                    (f"ol{ego_id % 4}", f"il{ego_id % 4}", 0)
+                )
+            else:
+                ego_lane = self.road.network.get_lane(
+                    (f"or{ego_id % 4}", f"ir{ego_id % 4}", 0)
+                )
             ego_vehicle = self.action_type.vehicle_class(
                 self.road,
                 ego_lane.position(50 + 5 * self.np_random.normal(1), 0),
@@ -338,12 +338,17 @@ class TopoIntersectionEnv(AbstractEnv):
         else:
             is_straight = self.np_random.choice(range(2), size=1)[0]
             which_lane = "r" if is_straight == 1 else "l"
-        route = self.np_random.choice(range(4), size=2, replace=False)
-        route[1] = (route[0] + 2) % 4 if must_straight else route[1]
+        route_start = self.np_random.choice(range(4), size=1)[0]
+        if must_straight:
+            route_end = (route_start + 2) % 4
+        elif not is_straight:
+            route_end = (route_start - 1) % 4
+        else:
+            route_end = (route_start + self.np_random.choice(range(1,3), size=1)[0]) % 4
         vehicle_type = utils.class_from_path(self.config["other_vehicles_type"])
         vehicle = vehicle_type.make_on_lane(
             self.road,
-            ("o" + str(route[0]), "i" + which_lane + str(route[0]), 0),
+            ("o" + which_lane + str(route_start), "i" + which_lane + str(route_start), 0),
             longitudinal=(
                 longitudinal + 5 + self.np_random.normal() * position_deviation
             ),
@@ -352,7 +357,7 @@ class TopoIntersectionEnv(AbstractEnv):
         for v in self.road.vehicles:
             if np.linalg.norm(v.position - vehicle.position) < 15:
                 return
-        vehicle.plan_route_to("o" + str(route[1]))
+        vehicle.plan_route_to("e" + str(route_end))
         vehicle.randomize_behavior()
         self.road.vehicles.append(vehicle)
         return vehicle
@@ -360,7 +365,7 @@ class TopoIntersectionEnv(AbstractEnv):
     def _clear_vehicles(self) -> None:
         is_leaving = (
             lambda vehicle: "io" in vehicle.lane_index[0]
-            and "o" in vehicle.lane_index[1]
+            and "e" in vehicle.lane_index[1]
             and vehicle.lane.local_coordinates(vehicle.position)[0]
             >= vehicle.lane.length - 4 * vehicle.LENGTH
         )
@@ -374,6 +379,6 @@ class TopoIntersectionEnv(AbstractEnv):
     def has_arrived(self, vehicle: Vehicle, exit_distance: float = 25) -> bool:
         return (
             "io" in vehicle.lane_index[0]
-            and "o" in vehicle.lane_index[1]
+            and "e" in vehicle.lane_index[1]
             and vehicle.lane.local_coordinates(vehicle.position)[0] >= exit_distance
         )

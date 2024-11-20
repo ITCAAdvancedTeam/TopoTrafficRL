@@ -6,6 +6,7 @@ import sys
 import os
 import json
 import importlib
+import math
 import numpy as np
 import gymnasium as gym
 import ttrl_env
@@ -75,6 +76,8 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
             labels_added["StraightLane"] = True
             # Plot lane boundaries based on line_types
             for lateral_offset, line_type in zip([-lane.width / 2 + bd_edge, lane.width / 2 - bd_edge], lane.line_types):
+                if line_type == ttrl_env.road.lane.LineType.NONE:
+                    continue
                 boundary_start = lane.position(0, lateral_offset)
                 boundary_end = lane.position(lane.length, lateral_offset)
                 color = 'red' if line_type == ttrl_env.road.lane.LineType.CONTINUOUS else 'yellow'
@@ -99,6 +102,8 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
             labels_added["CircularLane"] = True
             # Plot lane boundaries based on line_types
             for lateral_offset, line_type in zip([-lane.width / 2 + bd_edge, lane.width / 2 - bd_edge], lane.line_types):
+                if line_type == ttrl_env.road.lane.LineType.NONE:
+                    continue
                 boundary_x = center[0] + (radius + lateral_offset) * np.cos(angles)
                 boundary_y = center[1] + (radius + lateral_offset) * np.sin(angles)
                 color = 'red' if line_type == ttrl_env.road.lane.LineType.CONTINUOUS else 'yellow'
@@ -124,9 +129,21 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
 visualize_road_network(road)
 
 # Convert gym map to TopoMap
+# TODO:!!!
 lanes_dict = road.network.lanes_dict()
 for (from_, to_, i), lane in lanes_dict.items():
-    # TODO!!!
+    if isinstance(lane, ttrl_env.road.lane.StraightLane):
+        yaw = math.atan2(lane.end[1] - lane.start[1], lane.end[0] - lane.start[0])
+        waypoints = interpolate_line_with_yaw([lane.start[0], lane.start[1], yaw], [lane.end[0], lane.end[1], yaw])
+    elif isinstance(lane, ttrl_env.road.lane.CircularLane):
+        center = lane.center
+        radius = lane.radius
+        start_angle = lane.start_phase
+        end_angle = lane.end_phase
+        x0 = center[0] + radius * math.cos(start_angle)
+        y0 = center[1] + radius * math.sin(start_angle)
+        yaw0 = math.atan2(lane.end[1] - lane.start[1], lane.end[0] - lane.start[0])
+
 
 # Load an agent from the class.
 # The agent class must have:

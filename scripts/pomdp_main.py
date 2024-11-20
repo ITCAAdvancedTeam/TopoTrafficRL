@@ -8,33 +8,6 @@ from pomdp_solver import *
 import matplotlib.pyplot as plt
 from tqdm import tqdm  # For progress bar
 
-# Helper function
-def interpolate_line_with_yaw(start_point, end_point, num_points=20):
-    """
-    Interpolates a line segment between two points with yaw values and returns a list of (x, y, yaw) tuples.
-
-    Parameters:
-    start_point (tuple): Coordinates and yaw of the start point (x1, y1, yaw1).
-    end_point (tuple): Coordinates and yaw of the end point (x2, y2, yaw2).
-    num_points (int): Number of interpolated points. Default is 20.
-
-    Returns:
-    list: A list of tuples, each containing (x, y, yaw).
-    """
-    # Extract start and end coordinates and yaw
-    x1, y1, yaw1 = start_point
-    x2, y2, yaw2 = end_point
-
-    # Generate interpolated x, y, and yaw values
-    x_values = np.linspace(x1, x2, num_points)
-    y_values = np.linspace(y1, y2, num_points)
-    yaw_values = np.linspace(yaw1, yaw2, num_points)
-
-    # Combine x, y, and yaw into a list of tuples
-    interpolated_points = [(x, y, yaw) for x, y, yaw in zip(x_values, y_values, yaw_values)]
-
-    return interpolated_points
-
 def simple_no_left_4_way_intersection():
     # TODO: there is a map connection issue after 10 and 1
     map = TopoMap()

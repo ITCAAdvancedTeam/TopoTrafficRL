@@ -80,7 +80,7 @@ class ControlledVehicle(Vehicle):
             path = []
         if path:
             self.route = [self.lane_index] + [
-                (path[i], path[i + 1], None) for i in range(len(path) - 1)
+                (path[i], path[i + 1], 0) for i in range(len(path) - 1)
             ]
         else:
             self.route = [self.lane_index]
