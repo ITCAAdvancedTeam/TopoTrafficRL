@@ -159,7 +159,16 @@ for (from_, to_, i), lane in lanes_dict.items():
         end_dict[to_] = []
     end_dict[to_].append(index)
     # add relation
-    # TODO
+    if from_ in end_dict:
+        for f in end_dict[from_]:
+            map.add_connection(f, index)
+    if to_ in start_dict:
+        for t in start_dict[to_]:
+            map.add_connection(index, t)
+    if to_ in end_dict:
+        for c in end_dict[to_]:
+            map.add_confliction(index, c)
+    index = index + 1
 
 
 # Load an agent from the class.
