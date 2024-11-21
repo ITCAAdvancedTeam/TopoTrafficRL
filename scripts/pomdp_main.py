@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm  # For progress bar
 
 def simple_no_left_4_way_intersection():
-    # TODO: there is a map connection issue after 10 and 1
     map = TopoMap()
     l = 2.0 # half lane width
 

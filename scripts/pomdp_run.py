@@ -129,8 +129,11 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
 visualize_road_network(road)
 
 # Convert gym map to TopoMap
-# TODO:!!!
 lanes_dict = road.network.lanes_dict()
+map = TopoMap()
+start_dict = {}
+end_dict = {}
+index = 0
 for (from_, to_, i), lane in lanes_dict.items():
     if isinstance(lane, ttrl_env.road.lane.StraightLane):
         yaw = math.atan2(lane.end[1] - lane.start[1], lane.end[0] - lane.start[0])
@@ -142,7 +145,21 @@ for (from_, to_, i), lane in lanes_dict.items():
         end_angle = lane.end_phase
         x0 = center[0] + radius * math.cos(start_angle)
         y0 = center[1] + radius * math.sin(start_angle)
-        yaw0 = math.atan2(lane.end[1] - lane.start[1], lane.end[0] - lane.start[0])
+        yaw0 = start_angle + np.pi / 2 * lane.direction
+        x1 = center[0] + radius * math.cos(end_angle)
+        y1 = center[1] + radius * math.sin(end_angle)
+        yaw1 = end_angle + np.pi / 2 * lane.direction
+        waypoints = interpolate_line_with_yaw([x0, y0, yaw0], [x1, y1, yaw1])
+    # add waypoint
+    map.add_waypoints(index, waypoints)
+    if from_ not in start_dict:
+        start_dict[from_] = []
+    start_dict[from_].append(index)
+    if to_ not in end_dict:
+        end_dict[to_] = []
+    end_dict[to_].append(index)
+    # add relation
+    # TODO
 
 
 # Load an agent from the class.
