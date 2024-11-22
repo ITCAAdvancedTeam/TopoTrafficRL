@@ -287,7 +287,7 @@ class TopoIntersectionEnv(AbstractEnv):
         # Controlled vehicles
         self.controlled_vehicles = []
         for ego_id in range(0, self.config["controlled_vehicles"]):
-            destination_id = self.np_random.integers(1, 4)
+            destination_id = self.np_random.integers(2, 4)
             destination = self.config["destination"] or "e" + str(destination_id)
             if (destination_id - ego_id) % 4 == 1:
                 ego_lane = self.road.network.get_lane(

@@ -54,7 +54,7 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
 
     # Iterate through the lanes in lanes_dict
     for (from_, to_, i), lane in lanes_dict.items():
-        print(f"Lane Type = {type(lane)}, From: {from_}, To: {to_}, Index: {i}")
+        # print(f"Lane Type = {type(lane)}, From: {from_}, To: {to_}, Index: {i}")
 
         # Annotate the nodes (from_ and to_) on the plot
         if isinstance(from_, tuple) and isinstance(to_, tuple):  # Ensure from_ and to_ are coordinates
@@ -67,7 +67,7 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
         if isinstance(lane, ttrl_env.road.lane.StraightLane):
             # Plot StraightLane
             label = "Straight Lane" if not labels_added["StraightLane"] else "_nolegend_"
-            print(f"Straight Lane: Start: {lane.start}, End: {lane.end}")
+            # print(f"Straight Lane: Start: {lane.start}, End: {lane.end}")
             plt.plot(
                 [lane.start[0], lane.end[0]],
                 [lane.start[1], lane.end[1]],
@@ -89,7 +89,7 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
 
         elif isinstance(lane, ttrl_env.road.lane.CircularLane):
             # Plot CircularLane
-            print(f"Circular Lane: Center: {lane.center}, Radius: {lane.radius}")
+            # print(f"Circular Lane: Center: {lane.center}, Radius: {lane.radius}")
             center = lane.center
             radius = lane.radius
             start_angle = lane.start_phase
@@ -170,6 +170,7 @@ for (from_, to_, i), lane in lanes_dict.items():
             map.add_confliction(index, c)
     index = index + 1
 
+map.draw_tree()
 
 # Load an agent from the class.
 # The agent class must have:

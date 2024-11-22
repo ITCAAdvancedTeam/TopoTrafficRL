@@ -13,8 +13,9 @@ Observations: [o0,o1,...,ok], math:`S\subseteq[\mathbb{R},\mathbb{R},\mathbb{R},
 import random
 import numpy as np
 from scipy.stats import norm
+import networkx as nx
+import matplotlib.pyplot as plt
 
-TSTEP = 0.1
 
 class TopoMap:
     """
@@ -137,9 +138,52 @@ class TopoMap:
 
         return length
 
+    def draw_tree(self, filename="topology_graph.png"):
+        """
+        Visualizes the topology of the waypoints based on their coordinates and saves it to a file.
+
+        Args:
+            filename (str): The file name or path to save the graph image.
+        """
+        G = nx.DiGraph()  # Create a directed graph
+
+        # Define positions for the nodes based on waypoint coordinates
+        pos = {}  # Dictionary to store positions for the graph
+        for waypoint_id, points in self.waypoints.items():
+            if len(points) > 0:
+                # Use the mean of all (x, y) positions in the waypoints for node position
+                mean_x = np.mean(points[:, 0])
+                mean_y = np.mean(points[:, 1])
+                pos[waypoint_id] = (mean_x, mean_y)
+                G.add_node(waypoint_id)  # Add the waypoint ID as a node
+
+        # Add edges based on the topology dictionary
+        for wp_id, next_ids in self.topology.items():
+            for next_id in next_ids:
+                if wp_id in pos and next_id in pos:  # Ensure both waypoints exist in pos
+                    G.add_edge(wp_id, next_id)
+
+        # Draw the graph using actual coordinates
+        plt.figure(figsize=(12, 8))
+        nx.draw(
+            G, pos, with_labels=True, node_color='skyblue', node_size=200,
+            edge_color='k', linewidths=1, font_size=12
+        )
+
+        # Add waypoint labels
+        labels = {key: f"{key}" for key in pos.keys()}
+        nx.draw_networkx_labels(G, pos, labels, font_size=12, font_color="black")
+
+        plt.title("Waypoint Topology with Actual Coordinates")
+        plt.savefig(filename)  # Save the figure to a file
+        plt.close()  # Close the plot to avoid displaying it
+
     def __str__(self):
         # String representation for easy visualization
         return f"TopoMap(waypoints={self.waypoints}, topology={self.topology})"
+
+
+TSTEP = 0.1
 
 
 # State space: {[s,v,a,r]}
