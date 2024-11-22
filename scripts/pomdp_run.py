@@ -14,10 +14,11 @@ from ttrl_agent.agents.common.factory import load_environment
 from simulation import Simulation
 from utils import show_videos
 from pomdp_core import *
-from pomdp_solver import *
 import matplotlib
 matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
+from pomdp_simulation import *
+from pomdp_agent import *
 
 # Change the current working directory to scripts/
 script_path = os.path.dirname(os.path.abspath(__file__))
@@ -126,7 +127,7 @@ def visualize_road_network(road, output_file="intersection_map.png", dpi=300):
     print(f"Road network visualization saved as '{output_file}'")
 
 # Debugging
-visualize_road_network(road)
+# visualize_road_network(road)
 
 # Convert gym map to TopoMap
 lanes_dict = road.network.lanes_dict()
@@ -180,24 +181,12 @@ map.draw_tree()
 # def record(self, state, action, reward, next_state, done, info): # Record a transition by performing a Deep Q-Network iteration
 # def save(self, filename): save the agent
 
-# if not isinstance(agent_config, dict):
-#     with open(agent_config) as f:
-#         agent_config = json.loads(f.read())
-# agent = TopoAgent(env, agent_config)
-
+agent = POMCPAgent(env, map)
 
 # Run the simulation.
-# NUM_EPISODES = 20000  #@param {type: "integer"}
-# simulation = Simulation(env, agent, num_episodes=NUM_EPISODES, display_env=True)
-# print(f"Ready to run {agent} on {env}")
-# simulation.run()
-
-
-# Record video data.
-# TODO: add this into evaluation iteration
-# env = load_environment(env_config)
-# env.config["offscreen_rendering"] = True
-# agent = load_agent(agent_config, env)
-# evaluation = Evaluation(env, agent, num_episodes=1000, training = False, recover = True)
-# test_path = evaluation.run_directory / "test"
-# show_videos(test_path)
+NUM_EPISODES = 100  #@param {type: "integer"}
+simulation = POMCPSimulation(env, agent, num_episodes=NUM_EPISODES, display_env=True)
+print(f"Ready to run {agent} on {env}")
+simulation.run()
+test_path = simulation.run_directory / "test"
+show_videos(test_path)
