@@ -304,9 +304,9 @@ class TopoMap:
 
         # Add reachable waypoints to the new TopoMap
         new_topomap.waypoints = {wp_id: points for wp_id, points in self.waypoints.items() if wp_id in reachable}
-        new_topomap.topology = {wp_id: [conn for conn in connections if conn in reachable] 
+        new_topomap.topology = {wp_id: [conn for conn in connections if conn in reachable]
                                 for wp_id, connections in self.topology.items() if wp_id in reachable}
-        new_topomap.conflict = {wp_id: conflict_id for wp_id, conflict_id in self.conflict.items() 
+        new_topomap.conflict = {wp_id: conflict_id for wp_id, conflict_id in self.conflict.items()
                                 if wp_id in reachable and conflict_id in reachable}
 
         return new_topomap
