@@ -274,7 +274,42 @@ class TopoMap:
         return s, closest_waypoint_id
 
     def trim_map(self, ids):
-        pass # TODO
+        """
+        Creates a new TopoMap instance containing only waypoints and connections
+        reachable from the given IDs.
+
+        Args:
+            ids (list or set): A list or set of starting waypoint IDs.
+
+        Returns:
+            TopoMap: A new TopoMap instance with trimmed waypoints, topology, and conflicts.
+        """
+        # Use a set to track reachable waypoints
+        reachable = set(ids)
+
+        # Use a queue to perform BFS traversal
+        queue = list(ids)
+
+        # Perform BFS to find all reachable waypoints
+        while queue:
+            current_id = queue.pop(0)
+            # Extend to all connected waypoints in topology
+            for next_id in self.topology.get(current_id, []):
+                if next_id not in reachable:
+                    queue.append(next_id)
+                    reachable.add(next_id)
+
+        # Create a new TopoMap instance
+        new_topomap = TopoMap()
+
+        # Add reachable waypoints to the new TopoMap
+        new_topomap.waypoints = {wp_id: points for wp_id, points in self.waypoints.items() if wp_id in reachable}
+        new_topomap.topology = {wp_id: [conn for conn in connections if conn in reachable] 
+                                for wp_id, connections in self.topology.items() if wp_id in reachable}
+        new_topomap.conflict = {wp_id: conflict_id for wp_id, conflict_id in self.conflict.items() 
+                                if wp_id in reachable and conflict_id in reachable}
+
+        return new_topomap
 
     def draw_tree(self, filename="topology_graph.png"):
         """
