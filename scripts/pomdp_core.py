@@ -138,6 +138,144 @@ class TopoMap:
 
         return length
 
+    def convert_to_topo_position(self, position):
+        """
+        Finds the closest waypoint and its position on that waypoint.
+
+        Args:
+            position (tuple): A tuple (x, y, yaw) representing the position to check.
+
+        Returns:
+            tuple: A tuple (s, r), where:
+                - s (float): Length to the end of the closest waypoint.
+                - r (int): The ID of the closest waypoint.
+        """
+        def wrap_to_pi(angle):
+            """ Wraps an angle in radians to the range [-π, π]. """
+            return (angle + np.pi) % (2 * np.pi) - np.pi
+
+        x, y, yaw = position  # Extract x, y, yaw from the position
+        closest_waypoint_id = None
+        closest_distance = float('inf')
+        closest_index = None
+        candidates = []  # List to store candidates within 0.5 distance
+
+        # Iterate through all waypoints to find the closest
+        for waypoint_id, points in self.waypoints.items():
+            for idx, point in enumerate(points):
+                # Calculate Euclidean distance
+                distance = np.linalg.norm(np.array([x, y]) - point[:2])
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_waypoint_id = waypoint_id
+                    closest_index = idx
+                # Add to candidates if distance is within 0.5
+                if distance < 0.5:
+                    candidates.append((waypoint_id, idx, point, distance))
+                    break
+        # If there are candidates, refine selection based on yaw difference
+        if candidates:
+            closest_yaw_diff = float('inf')
+            best_candidate = None
+            for waypoint_id, idx, point, distance in candidates:
+                yaw_diff = np.abs(wrap_to_pi(yaw - point[2]))
+                if yaw_diff < closest_yaw_diff:
+                    closest_yaw_diff = yaw_diff
+                    closest_waypoint_id = waypoint_id
+                    closest_index = idx
+
+        if closest_waypoint_id is None:
+            raise ValueError("No suitable waypoint found in the map.")
+
+        # Calculate length (s) to the end of the closest waypoint
+        waypoints = self.waypoints[closest_waypoint_id]
+        s = 0.0
+        for i in range(closest_index, len(waypoints) - 1):
+            segment_length = np.linalg.norm(waypoints[i + 1][:2] - waypoints[i][:2])
+            s += segment_length
+
+        return s, closest_waypoint_id
+
+    def convert_to_topo_position_with_reference(self, position, reference_id):
+        """
+        Finds the closest waypoint starting from a reference waypoint and traversing connected waypoints.
+
+        Args:
+            position (tuple): A tuple (x, y, yaw) representing the position to check.
+            reference_id (int): The ID of the reference waypoint to start the search from.
+
+        Returns:
+            tuple: A tuple (s, r), where:
+                - s (float): Length to the end of the closest waypoint.
+                - r (int): The ID of the closest waypoint.
+        """
+        def wrap_to_pi(angle):
+            """ Wraps an angle in radians to the range [-π, π]. """
+            return (angle + np.pi) % (2 * np.pi) - np.pi
+
+        x, y, yaw = position  # Extract x, y, yaw from the position
+        closest_waypoint_id = None
+        closest_distance = float('inf')
+        closest_index = None
+        candidates = []  # List to store candidates within 0.5 distance
+
+        # Queue for BFS-like traversal
+        queue = [reference_id]
+        visited = set()
+
+        # Traverse connected waypoints starting from the reference ID
+        while queue:
+            current_id = queue.pop(0)
+            if current_id in visited:
+                continue
+            visited.add(current_id)
+
+            # Process waypoints for the current ID
+            points = self.waypoints.get(current_id)
+            if points is None:
+                continue
+
+            for idx, point in enumerate(points):
+                # Calculate Euclidean distance
+                distance = np.linalg.norm(np.array([x, y]) - point[:2])
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_waypoint_id = current_id
+                    closest_index = idx
+                # Add to candidates if distance is within 0.5
+                if distance < 0.5:
+                    candidates.append((current_id, idx, point, distance))
+                    break
+
+            # Add connected waypoints to the queue
+            queue.extend(self.topology.get(current_id, []))
+
+        # If there are candidates, refine selection based on yaw difference
+        if candidates:
+            closest_yaw_diff = float('inf')
+            best_candidate = None
+            for waypoint_id, idx, point, distance in candidates:
+                yaw_diff = np.abs(wrap_to_pi(yaw - point[2]))
+                if yaw_diff < closest_yaw_diff:
+                    closest_yaw_diff = yaw_diff
+                    closest_waypoint_id = waypoint_id
+                    closest_index = idx
+
+        if closest_waypoint_id is None:
+            raise ValueError("No suitable waypoint found starting from the reference waypoint.")
+
+        # Calculate length (s) to the end of the closest waypoint
+        waypoints = self.waypoints[closest_waypoint_id]
+        s = 0.0
+        for i in range(closest_index, len(waypoints) - 1):
+            segment_length = np.linalg.norm(waypoints[i + 1][:2] - waypoints[i][:2])
+            s += segment_length
+
+        return s, closest_waypoint_id
+
+    def trim_map(self, ids):
+        pass # TODO
+
     def draw_tree(self, filename="topology_graph.png"):
         """
         Visualizes the topology of the waypoints based on their coordinates and saves it to a file.

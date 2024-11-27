@@ -55,7 +55,6 @@ class Simulation(object):
                         - If True, it the default latest save will be used.
                         - If a string, it will be used as a path.
         :param display_env: Render the environment, and have a monitor recording its videos
-        :param display_agent: Add the agent graphics to the environment viewer, if supported
         :param display_rewards: Display the performances of the agent through the episodes
         :param close_env: Should the environment be closed when the evaluation is closed
         :param step_callback_fn: A callback function called after every environment step. It takes the following
