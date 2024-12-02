@@ -107,7 +107,7 @@ class TopoSimulation(object):
             Plan a sequence of actions according to the agent policy, and step the environment accordingly.
         """
         # Query agent for actions sequence
-        action = self.agent.plan(self.observation)
+        action = self.agent.plan(self.observation) # TODO: make sure this function is implemented correctly
         if not action:
             raise Exception("The agent did not plan any action")
 
