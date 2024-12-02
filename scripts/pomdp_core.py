@@ -583,8 +583,9 @@ class TransitionModel():
             in here, it means that the environment has an explicit formulation.
 
     """
-    def __init__(self, map=None):
+    def __init__(self, map=None, dt=TSTEP):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
+        self.dt = dt
 
     def probability(self, next_state, state, action):
         """probability of conflicting vehicle's reaction toward ego"""
@@ -663,7 +664,7 @@ class TransitionModel():
 
             for i in range(k):
                 # Calculate new position based on current velocity
-                new_s = state.data[i][0] - state.data[i][1] * TSTEP
+                new_s = state.data[i][0] - state.data[i][1] * self.dt
                 if new_s < 0.0:  # Check if vehicle reaches end of path segment
                     next_list = self.map.get_next_waypoints(state.data[i][3])
                     if not next_list:  # No more waypoints
@@ -679,7 +680,7 @@ class TransitionModel():
 
                 # Set acceleration for ego and conflicting vehicles
                 new_a = actions[i]
-                new_v = state.data[i][1] + new_a * TSTEP
+                new_v = state.data[i][1] + new_a * self.dt
 
                 # Append data for this vehicle
                 data = (new_s, new_v, new_a, new_r)
@@ -721,7 +722,7 @@ class RewardModel():
         K2 (float): The weight for the velocity alignment reward.
         K3 (float): The weight for the acceleration comfort reward.
     """
-    def __init__(self, map=None):
+    def __init__(self, map=None, dt=TSTEP):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
         self.d_safe = 3.0
         self.speed_limit = [4.0, 12.0]
@@ -729,12 +730,13 @@ class RewardModel():
         self.K1 = 10.0 # collision reward
         self.K2 = 20.0 # velocity reward
         self.K3 = 15.0 # acceleration reward
+        self.dt = dt
     def sample(self, state, action, next_state):
         # deterministic
         if state.terminate:
             return 100  # reach target and terminated
         R1 = [1]
-        R2 = [norm.pdf(state.data[0][1] + action.data * TSTEP, loc=8.0, scale=4.0)]
+        R2 = [norm.pdf(state.data[0][1] + action.data * self.dt, loc=8.0, scale=4.0)]
         R3 = [norm.pdf(action.data, loc=0.0, scale=2.0)]
         k = len(state.data)
         ego_point = self.map.find_waypoint_by_length(state.data[0][3], state.data[0][0])
@@ -759,8 +761,9 @@ class RewardModel():
 # Policy Model
 class PolicyModel():
     """The policy should favor 1. keep speed (v) 2. comfort (a)"""
-
     ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
+    def __init__(self, dt=TSTEP):
+        self.dt = dt
 
     def sample(self, state):
         # print("policy sample")  # debug
@@ -785,7 +788,7 @@ class PolicyModel():
         """
         v0 = state.data[0][1]
         a0 = state.data[0][2]
-        av = np.clip((8.0 - v0) / (10 * TSTEP), -2, 2)
+        av = np.clip((8.0 - v0) / (10 * self.dt), -2, 2)
         action_probabilities = []
         for action in self.ACTIONS:
             p1 = norm.pdf(action.data, loc=a0, scale=2.0)

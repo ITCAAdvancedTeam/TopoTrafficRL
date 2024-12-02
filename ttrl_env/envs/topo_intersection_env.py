@@ -24,8 +24,8 @@ class TopoIntersectionEnv(AbstractEnv):
                     "vehicles_count": 16,
                     "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h"],
                     "features_range": {
-                        "x": [-100, 100],
-                        "y": [-100, 100],
+                        "x": [-120, 120],
+                        "y": [-120, 120],
                         "vx": [-20, 20],
                         "vy": [-20, 20],
                     },
@@ -40,6 +40,7 @@ class TopoIntersectionEnv(AbstractEnv):
                     "target_speeds": [0, 4.0, 9.0, 14],
                 },
                 "duration": 12,  # [s]
+                "simulation_frequency": 10, # [Hz]
                 "destination": "e1",
                 "controlled_vehicles": 1,
                 "initial_vehicle_count": 10,

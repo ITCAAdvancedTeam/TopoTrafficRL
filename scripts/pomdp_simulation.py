@@ -85,6 +85,7 @@ class POMCPSimulation(object):
 
     def run_episodes(self):
         for self.episode in range(self.num_episodes):
+            print(f"---------------episode {self.episode} -------------")
             # Run episode
             terminal = False
             self.reset(seed=self.episode)
@@ -108,12 +109,14 @@ class POMCPSimulation(object):
         """
         # Query agent for actions sequence
         action = self.agent.plan(self.observation)
+        print(f"Action selected: {action}")
+
         if not action:
             raise Exception("The agent did not plan any action")
 
         # Forward the actions to the environment viewer
         try:
-            self.env.unwrapped.viewer.set_agent_action_sequence(action)
+            self.env.unwrapped.viewer.set_agent_action_sequence([action])
         except AttributeError:
             pass
 
@@ -121,12 +124,17 @@ class POMCPSimulation(object):
         transition = self.wrapped_env.step(action)
         self.observation, reward, done, truncated, _ = transition
         terminal = done or truncated
+        print(f"Observation: {self.observation}")
+        print(f"Reward: {reward}")
+        print(f"Done: {done}, Truncated: {truncated}")
+        print(f"Terminal: {terminal}")
+
 
         return reward, terminal
 
     @property
     def default_directory(self):
-        return Path(self.OUTPUT_FOLDER) / self.env.unwrapped.__class__.__name__
+        return Path(self.OUTPUT_FOLDER) / self.env.unwrapped.__class__.__name__ / self.agent.__class__.__name__
 
     @property
     def default_run_directory(self):

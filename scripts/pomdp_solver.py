@@ -81,13 +81,13 @@ class POMCPOWSolver:
         self.root = TreeNode(copy.deepcopy(belief))
 
     def plan(self):
-        # print(f'[DEBUG] Starting plan method')
+        print(f'[DEBUG] Starting plan method')
 
         # Run simulations, resetting to the initial root each time
         for _ in range(self.num_sims):
-            # print("-----------------------------------------------------------")
-            # self.root.print_tree()
-            # print("-----------------------------------------------------------")
+            print("-----------------------------------------------------------")
+            self.root.print_tree()
+            print("-----------------------------------------------------------")
             current_node = self.root  # Start each simulation from the initial root
             self.belief = self.init_belief
             self.action = self.init_action
@@ -153,8 +153,8 @@ class POMCPOWSolver:
         return Action(action_value)
 
     def simulate(self, node, depth):
-        # indent = " + " * (4 - depth)
-        # print(f'{indent} simulate - Depth: {depth}')
+        indent = " + " * (4 - depth)
+        print(f'{indent} simulate - Depth: {depth}')
         if depth == 0:
             return 0
 
@@ -170,7 +170,7 @@ class POMCPOWSolver:
 
                 observation = self.observation_model.sample(next_state, new_action)
                 observations.append(observation)
-            # print(f"{indent} new action: {new_action}")
+            print(f"{indent} new action: {new_action}")
 
             # Update belief based on the action and observation
             new_belief = self.belief.update(new_action, observations, self.observation_model)
@@ -188,7 +188,7 @@ class POMCPOWSolver:
 
         self.belief = node.children[self.action].belief
 
-        # print(f"{indent} action: {self.action}")
+        print(f"{indent} action: {self.action}")
 
         # Simulate recursively down the tree
         future_reward = self.simulate(node.children[self.action], depth - 1)
