@@ -4,24 +4,25 @@ import logging
 import torch
 from gymnasium import spaces
 
-from ttrl_agent.agents.common.models import model_factory, size del_config, trainable_parameters
+from ttrl_agent.agents.common.models import model_factory, size_model_config, trainable_parameters
 from ttrl_agent.agents.common.optimizers import loss_function_factory, optimizer_factory
 from ttrl_agent.agents.deep_q_network.abstract import AbstractDQNAgent
 
-from abc import ABC, abstractmethod 
+from abc import ABC, abstractmethod
 
 from ttrl_agent.configuration import Configurable
 
 logger = logging.getLogger(__name__)
 
 
-class TopoAgent(Configurable, ABC):
+class TtrlAgent(Configurable, ABC):
     def __init__(self, env, config=None):
         self.env = env
         assert isinstance(env.action_space, spaces.Discrete) or isinstance(env.action_space, spaces.Tuple), \
             "Only compatible with Discrete action spaces."
         self.training = True
         self.previous_state = None
+        size_model_config(self.env, self.config["model"]) # update self.config's size based on observation_space and action_space
         # TODO: init agent model here
         self.steps = 0
 
