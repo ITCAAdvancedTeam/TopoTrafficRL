@@ -25,7 +25,7 @@ class TopoMap:
     def __init__(self):
         self.waypoints = {} # Dictionary to map int to an array of waypoints, each being (x, y, yaw)
         self.topology = {}  # Dictionary to map int to a list of next waypoint IDs
-        self.conflict = {}  # Dictionary to map int to int
+        self.conflict = {}  # Dictionary to map int to a list of conflicting waypoint IDs
 
     def add_waypoints(self, waypoint_id, points):
         """
@@ -39,6 +39,8 @@ class TopoMap:
         self.waypoints[waypoint_id] = np.array(points)
         if waypoint_id not in self.topology:
             self.topology[waypoint_id] = []
+        # add itself into conflict
+        self.conflict[waypoint_id] = [waypoint_id]
 
     def add_connection(self, from_id, to_id):
         """
@@ -50,6 +52,8 @@ class TopoMap:
         """
         if from_id in self.waypoints and to_id in self.waypoints:
             self.topology[from_id].append(to_id)
+            # add next into conflict
+            self.conflict[from_id].append(to_id)
         else:
             raise ValueError("Both waypoint sequences must exist in the map to create a connection.")
     def add_confliction(self, conflict_id1, conflict_id2):
@@ -60,8 +64,8 @@ class TopoMap:
             conflict_id1 (int): ID of the waypoint sequence.
             conflict_id2 (int): ID of the waypoint sequence.
         """
-        self.conflict[conflict_id1] = conflict_id2
-        self.conflict[conflict_id2] = conflict_id1
+        self.conflict[conflict_id1].append(conflict_id2)
+        self.conflict[conflict_id2].append(conflict_id1)
 
     def get_waypoints(self, waypoint_id):
         """
@@ -306,8 +310,8 @@ class TopoMap:
         new_topomap.waypoints = {wp_id: points for wp_id, points in self.waypoints.items() if wp_id in reachable}
         new_topomap.topology = {wp_id: [conn for conn in connections if conn in reachable]
                                 for wp_id, connections in self.topology.items() if wp_id in reachable}
-        new_topomap.conflict = {wp_id: conflict_id for wp_id, conflict_id in self.conflict.items()
-                                if wp_id in reachable and conflict_id in reachable}
+        new_topomap.conflict = {wp_id: [conflict_id for conflict_id in conflicts if conflict_id in reachable]
+                            for wp_id, conflicts in self.conflict.items() if wp_id in reachable}
 
         return new_topomap
 
@@ -473,7 +477,7 @@ class ObservationModel():
     Methods:
         probability(observation, next_state, action):
             Computes the probability of observing `observation` given `next_state` and `action`.
-            The probability sconsiders the angular difference and distance between the observation
+            The probability considers the angular difference and distance between the observation
             and the next state's corresponding waypoint.
 
         sample(next_state, action, argmax=False):
@@ -587,7 +591,7 @@ class TransitionModel():
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
         self.dt = dt
 
-    def probability(self, next_state, state, action):
+    def probability(self, next_state, state, action): # TODO: modify the conflicting consideration and continue modify the whole core from here!
         """probability of conflicting vehicle's reaction toward ego"""
         # ego
         pa = norm.pdf(action.data - next_state.data[0][2], loc=0, scale=1.0)
@@ -754,7 +758,7 @@ class RewardModel():
                 R2.append(r2)
                 R3.append(r3)
         reward = self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
-        # print("reward: ", reward)
+        print(f"reward: {reward}, R1: {R1}, R2: {R2}, R3: {R3}")
         # print(f"reward: R1 = {np.prod(R1) ** (1 / len(R1))}, R2 = {np.prod(R2) ** (1 / len(R2))}, R3 = {np.prod(R3) ** (1 / len(R3))}")
         return reward
 

@@ -49,7 +49,7 @@ class POMCPAgent(Configurable, ABC):
 
         # update map table based on observation
         self.trim_map = self.map.trim_map(self.init_map_id)
-
+        self.trim_map.draw_tree("topology_graph_trimed_"+str(self.init_map_id)+".png")
         # Initialize components from pomdp_core
         self.transition_model = TransitionModel(self.trim_map, self.dt)
         self.observation_model = ObservationModel(self.trim_map, 0.1)

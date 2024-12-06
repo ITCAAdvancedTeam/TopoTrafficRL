@@ -85,7 +85,7 @@ class POMCPSimulation(object):
 
     def run_episodes(self):
         for self.episode in range(self.num_episodes):
-            print(f"---------------episode {self.episode} -------------")
+            print(f"   episode {self.episode}:")
             # Run episode
             terminal = False
             self.reset(seed=self.episode)
