@@ -26,6 +26,7 @@ class TopoMap:
         self.waypoints = {} # Dictionary to map int to an array of waypoints, each being (x, y, yaw)
         self.topology = {}  # Dictionary to map int to a list of next waypoint IDs
         self.conflict = {}  # Dictionary to map int to a list of conflicting waypoint IDs
+        self.conflict_point = {} # Dictionary to map (int, int) to (float, float)
 
     def add_waypoints(self, waypoint_id, points):
         """
@@ -41,6 +42,7 @@ class TopoMap:
             self.topology[waypoint_id] = []
         # add itself into conflict
         self.conflict[waypoint_id] = [waypoint_id]
+        self.conflict_point[(waypoint_id, waypoint_id)] = (0.0, 0.0)
 
     def add_connection(self, from_id, to_id):
         """
@@ -54,18 +56,54 @@ class TopoMap:
             self.topology[from_id].append(to_id)
             # add next into conflict
             self.conflict[from_id].append(to_id)
+            self.conflict_point[(from_id, to_id)] = (self.find_length_by_waypoint(to_id), 0.0)
         else:
             raise ValueError("Both waypoint sequences must exist in the map to create a connection.")
+
     def add_confliction(self, conflict_id1, conflict_id2):
         """
-        Adds a confliction between two waypoints.
+        Adds a confliction between two waypoints and assigns the conflict_point as
+        the lengths to the end of the respective waypoint paths.
 
         Args:
-            conflict_id1 (int): ID of the waypoint sequence.
-            conflict_id2 (int): ID of the waypoint sequence.
+            conflict_id1 (int): ID of the first waypoint sequence.
+            conflict_id2 (int): ID of the second waypoint sequence.
         """
+        # Add conflict entries for both waypoints
         self.conflict[conflict_id1].append(conflict_id2)
         self.conflict[conflict_id2].append(conflict_id1)
+
+        # Find the closest points between the two waypoint arrays
+        waypoints1 = self.waypoints[conflict_id1]
+        waypoints2 = self.waypoints[conflict_id2]
+
+        min_distance = float('inf')
+        closest_index1 = None
+        closest_index2 = None
+
+        for idx1, point1 in enumerate(waypoints1):
+            for idx2, point2 in enumerate(waypoints2):
+                # Calculate Euclidean distance
+                distance = np.linalg.norm(point1[:2] - point2[:2])  # Compare (x, y) only
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_index1 = idx1
+                    closest_index2 = idx2
+
+        # Calculate lengths along the path to the end for both waypoints
+        def calculate_path_length(waypoints, start_index):
+            """Helper function to calculate path length from start_index to the end."""
+            length = 0.0
+            for i in range(start_index, len(waypoints) - 1):
+                length += np.linalg.norm(waypoints[i + 1][:2] - waypoints[i][:2])
+            return length
+
+        length_to_end1 = calculate_path_length(waypoints1, closest_index1)
+        length_to_end2 = calculate_path_length(waypoints2, closest_index2)
+
+        # Store the conflict_point as the lengths to the end along the path
+        self.conflict_point[(conflict_id1, conflict_id2)] = (length_to_end1, length_to_end2)
+        self.conflict_point[(conflict_id2, conflict_id1)] = (length_to_end2, length_to_end1)
 
     def get_waypoints(self, waypoint_id):
         """
@@ -400,13 +438,14 @@ class Action():
 
     def __init__(self, data):
         """
-        Initializes an action with a single velocity.
+        Initializes an action with a single velocity, clamping the input to [-2, 2]
+        and rounding to the closest integer.
 
         Args:
-            data (float): A single velocity as a double.
+            data (float or int): acceleration.
         """
-        # Convert data to a float
-        self.data = float(data)
+        # Round to the nearest integer and clamp to the range [-2, 2]
+        self.data = max(-2, min(2, round(data)))
 
     def __hash__(self):
         # Hash directly with the float value
@@ -591,7 +630,7 @@ class TransitionModel():
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
         self.dt = dt
 
-    def probability(self, next_state, state, action): # TODO: modify the conflicting consideration and continue modify the whole core from here!
+    def probability(self, next_state, state, action):
         """probability of conflicting vehicle's reaction toward ego"""
         # ego
         pa = norm.pdf(action.data - next_state.data[0][2], loc=0, scale=1.0)
@@ -599,56 +638,51 @@ class TransitionModel():
         # confliction
         p = []
         k = len(state.data)
-        ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3]) # TODO: extend to a certain distance
-        TTC = []
-        for id in ego_list:
-            len_to_end = state.data[0][0] if id == state.data[0][3] else state.data[0][0] + self.map.find_length_by_waypoint(id)
-            if action.data == 0:
-                ttc = len_to_end / state.data[0][1]
-            else:
-                ttc = (np.sqrt(2 * action.data * len_to_end + state.data[0][1]**2) - state.data[0][1]) / action.data
-            # deal with the case the vehicle decc to zero
-            if state.data[0][1] + action.data * ttc < 0.0:
-                ttc = float('inf')  # Set TTC to infinity if velocity is zero
-            TTC.append((id, ttc))
+        ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
 
         for i in range(1, k):
-            conflict_waypoint_id = self.map.conflict.get(state.data[i][3])
-             # Check if there is a conflict and it exists in ego_list
-            if conflict_waypoint_id in ego_list:
-                # Find corresponding TTC for the conflict waypoint in ego's TTC list
-                ego_ttc = next((ttc for waypoint_id, ttc in TTC if waypoint_id == conflict_waypoint_id), None)
-
-                # If TTC is not found, skip this conflict
-                if ego_ttc is None:
+            conflict_waypoint_id_list = self.map.conflict.get(state.data[i][3])
+            # Check if there is a conflict and it exists in ego_list
+            for conflict_waypoint_id in conflict_waypoint_id_list:
+                if conflict_waypoint_id not in ego_list:
                     continue
+                if (conflict_waypoint_id, state.data[i][3]) in self.map.conflict_point:
+                    ego_dist, vel_dist = self.map.conflict_point[(conflict_waypoint_id, state.data[i][3])]
+                    if conflict_waypoint_id == state.data[0][3]:
+                        ego_dist = state.data[0][0] - ego_dist
+                    else:
+                        ego_dist = state.data[0][0] - ego_dist + self.map.find_length_by_waypoint(conflict_waypoint_id)
+                    vel_dist = state.data[i][0] - vel_dist
+                    if vel_dist * ego_dist < 0: # if pass conflict point
+                        continue
+                    if 2 * state.data[i][2] * vel_dist + state.data[i][1]**2 < 0 or np.abs(state.data[i][1]) < 0.001: # if vehicle stop before conflict point
+                        continue
+                    if 2 * state.data[0][2] * ego_dist + state.data[0][1]**2 < 0 or np.abs(state.data[0][1]) < 0.001: # if ego stop before conflict point
+                        continue
 
-                 # Calculate TTC for the conflicting vehicle
-                conflict_len_to_end = state.data[i][0]
-                conflict_acc = state.data[i][2]
-                # Estimate a TTC for the conflicting vehicle
-                if conflict_acc == 0:
-                    conflict_ttc = conflict_len_to_end / state.data[i][1]
-                else:
-                    conflict_ttc = (np.sqrt(2 * conflict_acc * conflict_len_to_end + state.data[i][1]**2) - state.data[i][1]) / conflict_acc
-                # deal with the case the vehicle decc to zero
-                if state.data[0][1] + action.data * ttc < 0.0:
-                    ttc = float('inf')  # Set TTC to infinity if velocity is zero
-                # Calculate probability based on TTC difference
-                ttc_diff = np.abs(ego_ttc - conflict_ttc)
-                # Calculate probability based on TTC difference, handling inf case
-                if np.isinf(ego_ttc) or np.isinf(conflict_ttc):
-                    p_i = 1.0  # No imminent collision, set p_i to 1
-                else:
-                    ttc_diff = np.abs(ego_ttc - conflict_ttc)
-                    p_i = norm.pdf(ttc_diff, loc=0, scale=2.0)
-                p.append(p_i)
+                    # Find corresponding TTC for the conflict waypoint in ego's TTC list
+                    if action.data == 0:
+                        ego_ttc = ego_dist / state.data[0][1]
+                    else:
+                        ego_ttc = (np.sqrt(2 * action.data * ego_dist + state.data[0][1]**2) - state.data[0][1]) / action.data
+                    if state.data[i][2] == 0:
+                        vel_ttc = vel_dist / state.data[i][1]
+                    else:
+                        vel_ttc = (np.sqrt(2 * state.data[i][2] * vel_dist + state.data[i][1]**2) - state.data[i][1]) / state.data[i][2]
+
+                    # Calculate probability based on TTC difference, handling inf case
+                    if np.isinf(ego_ttc) or np.isinf(vel_ttc):
+                        p_i = 1.0  # No imminent collision, set p_i to 1
+                    else:
+                        ttc_diff = np.abs(ego_ttc - vel_ttc)
+                        p_i = norm.pdf(ttc_diff, loc=0, scale=2.0)
+                    p.append(p_i)
 
         p = np.array(p)
         pb = np.exp(np.sum(np.log(p)))
         return pa * pb
 
-    def sample(self, state, action):
+    def sample(self, state, action): # TODO: debug from here!!!
         # Debugging: check if it actually generates randomized states
         next_state_candidates = []
         k = len(state.data)
