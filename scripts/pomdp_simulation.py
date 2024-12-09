@@ -129,7 +129,6 @@ class POMCPSimulation(object):
         print(f"Done: {done}, Truncated: {truncated}")
         print(f"Terminal: {terminal}")
 
-
         return reward, terminal
 
     @property
