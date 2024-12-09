@@ -30,6 +30,8 @@ class POMCPAgent(Configurable, ABC):
             # Fallback to `unwrapped.config` if `get_wrapper_attr` is unavailable
             config = env.unwrapped.config
         self.target_speeds = config["action"]["target_speeds"]
+        self.vel_range = [self.target_speeds[1], self.target_speeds[3]]
+        self.acc_range = [-2.0, 2.0]
         self.dt = 1 / config["simulation_frequency"]
         self.xrange = config["observation"]["features_range"]["x"]
         self.yrange = config["observation"]["features_range"]["y"]
@@ -53,8 +55,8 @@ class POMCPAgent(Configurable, ABC):
         # Initialize components from pomdp_core
         self.transition_model = TransitionModel(self.trim_map, self.dt)
         self.observation_model = ObservationModel(self.trim_map, 0.1)
-        self.reward_model = RewardModel(self.trim_map, self.dt)
-        self.policy_model = PolicyModel(self.dt)
+        self.reward_model = RewardModel(self.trim_map, self.dt, self.vel_range, self.acc_range)
+        self.policy_model = PolicyModel(self.dt, self.target_speeds[2])
 
     def plan(self, state):
         """
@@ -69,7 +71,7 @@ class POMCPAgent(Configurable, ABC):
         vehicles_data = self.convert_obs_to_dict(state)
         ego = vehicles_data[0]
         ego_position = (ego["x"], ego["y"], np.arctan2(ego["sin_h"], ego["cos_h"]))
-        ego_s, ego_r = self.map.convert_to_topo_position(ego_position)
+        ego_s, ego_r = self.trim_map.convert_to_topo_position(ego_position)
         ego_v = (ego["vx"]**2 + ego["vy"]**2)**0.5
         initial_state_data = [(ego_s, ego_v, 0.0, ego_r)]
 
@@ -80,7 +82,7 @@ class POMCPAgent(Configurable, ABC):
             vy = vehicles_data[i]["vy"]
             cos_h = vehicles_data[i]["cos_h"]
             sin_h = vehicles_data[i]["sin_h"]
-            s, r = self.map.convert_to_topo_position((x,y,np.arctan2(sin_h, cos_h)))
+            s, r = self.trim_map.convert_to_topo_position((x,y,np.arctan2(sin_h, cos_h)))
             initial_state_data.append((s, (vx**2 + vy**2)**0.5, 0.0, r))
         # find the initial state based on map and obs
         initial_state = State(initial_state_data)

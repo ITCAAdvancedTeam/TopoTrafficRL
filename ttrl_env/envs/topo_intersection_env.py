@@ -56,7 +56,7 @@ class TopoIntersectionEnv(AbstractEnv):
                 "normalize_reward": False,
                 "offroad_terminal": False,
                 "show_trajectories": True,
-                "speed_limit": 10
+                "speed_limit": 9.0
             }
         )
         return config
@@ -239,7 +239,7 @@ class TopoIntersectionEnv(AbstractEnv):
                 "io" + str(corner),
                 "e" + str(corner),
                 StraightLane(
-                    start, end, line_types=[c, c], priority=priority, speed_limit=10
+                    start, end, line_types=[c, c], priority=priority, speed_limit=self.config["speed_limit"]
                 ),
             )
         # print(f"lane network: {net.graph}")
@@ -353,7 +353,7 @@ class TopoIntersectionEnv(AbstractEnv):
             longitudinal=(
                 longitudinal + 5 + self.np_random.normal() * position_deviation
             ),
-            speed=10 + self.np_random.normal() * speed_deviation,
+            speed=self.config["speed_limit"] + self.np_random.normal() * speed_deviation,
         )
         for v in self.road.vehicles:
             if np.linalg.norm(v.position - vehicle.position) < 15:

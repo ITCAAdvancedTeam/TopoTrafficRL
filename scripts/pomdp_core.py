@@ -341,6 +341,10 @@ class TopoMap:
                     queue.append(next_id)
                     reachable.add(next_id)
 
+        # Ensure all input IDs are still reachable
+        if not set(ids).issubset(reachable):
+            raise ValueError("Some of the provided IDs are not reachable in the current map.")
+
         # Create a new TopoMap instance
         new_topomap = TopoMap()
 
@@ -682,7 +686,7 @@ class TransitionModel():
         pb = np.exp(np.sum(np.log(p)))
         return pa * pb
 
-    def sample(self, state, action): # TODO: debug from here!!!
+    def sample(self, state, action):
         # Debugging: check if it actually generates randomized states
         next_state_candidates = []
         k = len(state.data)
@@ -693,7 +697,7 @@ class TransitionModel():
         # Generate multiple action configurations
         for config_idx in range(random_cnt):
             # Fix the ego vehicle's action, randomize actions for conflicting vehicles
-            actions = [action.data] + [random.uniform(-2.0, 2.0) for _ in range(1, k)]
+            actions = [action.data] + [random.choice([-2, -1, 0, 1, 2]) for _ in range(1, k)]
             # print(f"[DEBUG] Configuration {config_idx + 1}: Actions = {actions}")
 
             # Generate the next state based on this configuration
@@ -754,19 +758,19 @@ class RewardModel():
     Attributes:
         map (TopoMap): The map used to find waypoints and assess distances.
         d_safe (float): The safe distance threshold for collision risk.
-        speed_limit (list of float): The minimum and maximum speed limits.
-        acceleration_limit (list of float): The allowable acceleration range.
+        vel_limit (list of float): The minimum and maximum speed limits.
+        acc_limit (list of float): The allowable acceleration range.
         K1 (float): The weight for the collision risk reward.
         K2 (float): The weight for the velocity alignment reward.
         K3 (float): The weight for the acceleration comfort reward.
     """
-    def __init__(self, map=None, dt=TSTEP):
+    def __init__(self, map=None, dt=TSTEP, vel_range=[4.0, 14.0], acc_range=[-2.0, 2.0]):
         self.map = map if map is not None else TopoMap()  # Default to TopoMap if no map is provided
         self.d_safe = 3.0
-        self.speed_limit = [4.0, 12.0]
-        self.acceleration_limit = [-2.0, 2.0]
+        self.vel_limit = vel_range
+        self.acc_limit = acc_range
         self.K1 = 10.0 # collision reward
-        self.K2 = 20.0 # velocity reward
+        self.K2 = 15.0 # velocity reward
         self.K3 = 15.0 # acceleration reward
         self.dt = dt
     def sample(self, state, action, next_state):
@@ -783,11 +787,15 @@ class RewardModel():
             conflict_waypoint_id = self.map.conflict.get(state.data[i][3])
              # Check if there is a conflict and it exists in ego_list
             if conflict_waypoint_id in ego_list:
-                pointi = self.map.find_waypoint_by_length(state.data[i][3], state.data[0][0])
+                pointi = self.map.find_waypoint_by_length(state.data[i][3], state.data[i][0])
                 di = np.linalg.norm(ego_point[:2] - pointi[:2])
                 r1 = 1 / (1 + np.exp(2 * (self.d_safe - di))) - 0.5
-                r2 = norm.pdf(state.data[i][1], loc=8.0, scale=4.0)
-                r3 = norm.pdf(state.data[i][2], loc=0.0, scale=2.0)
+                speed_mean = (self.vel_limit[0] + self.vel_limit[1]) / 2  # Midpoint of speed range
+                speed_std = (self.vel_limit[1] - self.vel_limit[0]) / 2  # Approximation of scale
+                accel_mean = (self.acc_limit[0] + self.acc_limit[1]) / 2  # Midpoint of acceleration range
+                accel_std = (self.acc_limit[1] - self.acc_limit[0]) / 2  # Approximation of scale
+                r2 = norm.pdf(state.data[i][1], loc=speed_mean, scale=speed_std)
+                r3 = norm.pdf(state.data[i][2], loc=accel_mean, scale=accel_std)
                 R1.append(r1)
                 R2.append(r2)
                 R3.append(r3)
@@ -800,8 +808,9 @@ class RewardModel():
 class PolicyModel():
     """The policy should favor 1. keep speed (v) 2. comfort (a)"""
     ACTIONS = [Action(s) for s in {-2.0, -1.0, 0.0, 1.0, 2.0}]
-    def __init__(self, dt=TSTEP):
+    def __init__(self, dt=TSTEP, target_speed=9.0):
         self.dt = dt
+        self.target_speed = target_speed
 
     def sample(self, state):
         # print("policy sample")  # debug
@@ -818,7 +827,7 @@ class PolicyModel():
     def _calculate_action_probabilities(self, state):
         """
         Calculates the probabilities for actions that favor:
-        1. Keeping speed (v) close to 8.
+        1. Keeping speed (v) close to target_speed.
         2. Ensuring comfort (small acceleration/deceleration).
 
         Returns:
@@ -826,11 +835,11 @@ class PolicyModel():
         """
         v0 = state.data[0][1]
         a0 = state.data[0][2]
-        av = np.clip((8.0 - v0) / (10 * self.dt), -2, 2)
+        av = np.clip((self.target_speed - v0) / (10 * self.dt), -2, 2)
         action_probabilities = []
         for action in self.ACTIONS:
             p1 = norm.pdf(action.data, loc=a0, scale=2.0)
-            p2 = norm.pdf(action.data, loc=av, scale=4.0)
+            p2 = norm.pdf(action.data, loc=av, scale=2.0)
             action_probabilities.append(p1 + p2)
 
         # Normalize to create a probability distribution
