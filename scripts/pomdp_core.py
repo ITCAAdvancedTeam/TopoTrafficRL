@@ -404,6 +404,24 @@ class TopoMap:
             edge_color='k', linewidths=1, font_size=12
         )
 
+        # Add conflict points as text annotations
+        for (wp_id1, wp_id2), (dist1, dist2) in self.conflict_point.items():
+            # Calculate positions of conflict points based on distances to the end of the waypoints
+            conflict_pos1 = self.find_waypoint_by_length(wp_id1, dist1)
+            conflict_pos2 = self.find_waypoint_by_length(wp_id2, dist2)
+
+            if conflict_pos1 is not None and conflict_pos2 is not None:
+                # Take the midpoint of the conflict positions for annotation
+                conflict_x = (conflict_pos1[0] + conflict_pos2[0]) / 2
+                conflict_y = (conflict_pos1[1] + conflict_pos2[1]) / 2
+
+                # Add text annotation for the conflict
+                plt.text(
+                    conflict_x, conflict_y,
+                    f"Conflict {wp_id1}-{wp_id2}",
+                    fontsize=8, color='red', ha='center', va='center', bbox=dict(facecolor='white', alpha=0.3)
+                )
+
         # Add waypoint labels
         labels = {key: f"{key}" for key in pos.keys()}
         nx.draw_networkx_labels(G, pos, labels, font_size=12, font_color="black")

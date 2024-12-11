@@ -171,6 +171,7 @@ for (from_, to_, i), lane in lanes_dict.items():
             map.add_confliction(index, c)
     index = index + 1
 
+map.find_all_conflict()
 map.draw_tree()
 
 # Load an agent from the class.
