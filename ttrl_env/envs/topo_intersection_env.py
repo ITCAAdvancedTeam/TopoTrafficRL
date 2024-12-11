@@ -21,7 +21,7 @@ class TopoIntersectionEnv(AbstractEnv):
             {
                 "observation": {
                     "type": "Kinematics",
-                    "vehicles_count": 16,
+                    "vehicles_count": 12,
                     "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h"],
                     "features_range": {
                         "x": [-120, 120],
@@ -39,11 +39,11 @@ class TopoIntersectionEnv(AbstractEnv):
                     "lateral": False,
                     "target_speeds": [0, 4.0, 9.0, 14],
                 },
-                "duration": 12,  # [s]
+                "duration": 20,  # [s]
                 "simulation_frequency": 10, # [Hz]
                 "destination": "e1",
                 "controlled_vehicles": 1,
-                "initial_vehicle_count": 10,
+                "initial_vehicle_count": 6,
                 "spawn_probability": 0.6,
                 "screen_width": 600,
                 "screen_height": 600,

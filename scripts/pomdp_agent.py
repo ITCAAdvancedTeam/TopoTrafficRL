@@ -11,17 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class POMCPAgent(Configurable, ABC):
-    def __init__(self,
-                 env,
-                 map,
-                 num_particles=10,
-                 max_depth=5,
-                 num_sims=20):
+    def __init__(self, env, map, num_particles=10, max_depth=5, num_sims=20):
         self.env = env
         self.map = map
         self.num_particles = num_particles
-        self.max_depth=max_depth,
-        self.num_sims=num_sims,
+        self.max_depth=max_depth
+        self.num_sims=num_sims
         # Access the config safely
         if hasattr(env, "get_wrapper_attr"):
             # Use `get_wrapper_attr` to fetch the config
@@ -95,24 +90,31 @@ class POMCPAgent(Configurable, ABC):
             observation_model=self.observation_model,
             reward_model=self.reward_model,
             policy_model=self.policy_model,
-            max_depth=5,
-            num_sims=2,
+            max_depth=self.max_depth,
+            num_sims=self.num_sims,
         )
         # convert to a value in self.env.action_space based on self.target_speeds
         acc_action = solver.plan()
         # Calculate the new speed
-        target_speed = ego_v + acc_action.data * self.dt * 5 # POMCPOW is targeted on max_depth=5
-        print("target speed: ", target_speed)
+        target_speed = max(0.0, ego_v + acc_action.data * self.dt * 10) # POMCPOW is targeted on max_depth=5
+        print(f"target acc: {acc_action.data:.2f} target speed: {target_speed:.4f}")
         # Find the key corresponding to the target speed closest to the new speed
         best_key = None
         min_diff = float('inf')  # Set to a very large value initially
 
         # Iterate through target_speeds dictionary
         for key, value in enumerate(self.target_speeds):
-            diff = abs(value - target_speed)  # Calculate the difference
+            diff = abs(target_speed - value) # Calculate the difference
             if diff < min_diff:
                 min_diff = diff  # Update the smallest difference
                 best_key = key  # Update the best target key
+
+        if min_diff > 1.0: # buffer zone: 1.0 [m/s]
+            best_key = int(min(3, max(0, best_key + np.sign(target_speed - self.target_speeds[best_key]))))
+
+        # Visualize the step and save the result
+        self.visualize_step(vehicles_data, best_key, target_speed, save_path="step_visualization_"+str(ego)+".png")
+        print(f"save image for {ego}")
 
         # return action key
         return best_key
@@ -157,3 +159,45 @@ class POMCPAgent(Configurable, ABC):
                 # Add this dictionary to the vehicles_data list
                 vehicles_data.append(vehicle_dict)
         return vehicles_data
+
+    def visualize_step(self, vehicles_data, ego_action, ego_target_speed, save_path=None):
+        """
+        Visualize the current step with vehicle positions and actions.
+
+        :param vehicles_data: List of dictionaries containing vehicle state data.
+        :param ego_action: The action chosen for the ego vehicle.
+        :param ego_target_speed: The target speed for the ego vehicle.
+        :param save_path: Optional path to save the visualization image.
+        """
+        plt.figure(figsize=(8, 8))
+        plt.title("POMDP Step Visualization")
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+
+        # Set plot limits
+        plt.xlim(-60, 60)
+        plt.ylim(-60, 60)
+
+        # Plot other vehicles
+        for vehicle in vehicles_data[1:]:
+            plt.scatter(vehicle["x"], vehicle["y"], color="blue", label="Other Vehicles" if vehicle == vehicles_data[1] else None)
+            plt.arrow(vehicle["x"], vehicle["y"], vehicle["vx"], vehicle["vy"], color="blue", head_width=0.5)
+
+        # Plot ego vehicle
+        ego = vehicles_data[0]
+        plt.scatter(ego["x"], ego["y"], color="red", label="Ego Vehicle")
+        plt.arrow(ego["x"], ego["y"], ego["vx"], ego["vy"], color="red", head_width=0.5, label="Ego Velocity")
+        ego_v = (ego["vx"]**2 + ego["vy"]**2)**0.5
+
+        # Annotate the ego action and target speed
+        plt.text(ego["x"], ego["y"] + 1, f"Action: {ego_action}\nTarget Speed: {ego_target_speed:.2f}\nSpeed: {ego_v:.2f}", color="red")
+
+        plt.legend()
+        plt.grid(True)
+
+        if save_path:
+            plt.savefig(save_path)
+        else:
+            plt.show()
+
+        plt.close()

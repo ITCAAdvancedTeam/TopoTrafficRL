@@ -180,10 +180,10 @@ map.draw_tree()
 # def act(self, state): # plan action at current state. This is where optimization based method implemented.
 # def record(self, state, action, reward, next_state, done, info): # Record a transition by performing a Deep Q-Network iteration
 # def save(self, filename): save the agent
-agent = POMCPAgent(env, map, num_particles=10, max_depth=5, num_sims=20)
+agent = POMCPAgent(env, map, num_particles=5, max_depth=5, num_sims=2)
 
 # Run the simulation.
-NUM_EPISODES = 100  #@param {type: "integer"}
+NUM_EPISODES = 1  #@param {type: "integer"}
 simulation = POMCPSimulation(env, agent, num_episodes=NUM_EPISODES, display_env=True)
 print(f"Ready to run {agent} on {env}")
 simulation.run()

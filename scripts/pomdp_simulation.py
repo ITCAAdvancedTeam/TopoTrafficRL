@@ -111,7 +111,7 @@ class POMCPSimulation(object):
         action = self.agent.plan(self.observation)
         print(f"Action selected: {action}")
 
-        if not action:
+        if action is None:
             raise Exception("The agent did not plan any action")
 
         # Forward the actions to the environment viewer
@@ -125,7 +125,6 @@ class POMCPSimulation(object):
         self.observation, reward, done, truncated, _ = transition
         terminal = done or truncated
         print(f"Observation: {self.observation}")
-        print(f"Reward: {reward}")
         print(f"Done: {done}, Truncated: {truncated}")
         print(f"Terminal: {terminal}")
 

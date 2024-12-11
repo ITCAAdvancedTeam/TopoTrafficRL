@@ -42,10 +42,11 @@ class TreeNode:
             level (int): The depth level of the current node, used for indentation.
         """
         indent = " + " * level  # Adjust indent for clarity
-        print(f"{indent}Node(level={level}, visit_count={self.visit_count}, value={self.value})")
+        print(f"{indent}Node(level={level}, visit_count={self.visit_count}, value={self.value:.4f})")
 
-        for i, particle in enumerate(self.belief.particles[:3]):  # Print only the first few particles for brevity
-            print(f"{indent}  Particle {i}: {particle}")
+        for i, particle in enumerate(self.belief.particles):  # Print only the first few particles for brevity
+            formatted_data = ", ".join([f"[{s:.2f}, {v:.2f}, {a:.2f}, {r}]" for s, v, a, r in particle.data])
+            print(f"{indent}  Particle {i}: {formatted_data}")
 
         # Recursively print each child node with its associated action
         for action, child in self.children.items():
@@ -161,6 +162,7 @@ class POMCPOWSolver:
         # Choose action based on progressive widening if needed
         new_action = self.action_progressive_widening(node)
         if (new_action != None):
+            print(f"{indent} new action: {new_action}")
             # Sample the next state and observation
             new_next_states = []
             observations = []
@@ -170,7 +172,6 @@ class POMCPOWSolver:
 
                 observation = self.observation_model.sample(next_state, new_action)
                 observations.append(observation)
-            print(f"{indent} new action: {new_action}")
 
             # Update belief based on the action and observation
             new_belief = self.belief.update(new_action, observations, self.observation_model)
@@ -210,7 +211,9 @@ class POMCPOWSolver:
 
     def select_best_action(self, root):
         """Selects the best action from the root node based on visit counts."""
-        best_action = max(root.children, key=lambda action: root.children[action].visit_count)
+        if not root.children:
+            raise ValueError("No actions available to select from root.")
+        best_action = max(root.children, key=lambda action: root.children[action].value)
         return best_action
 
 

@@ -69,9 +69,9 @@ class TopoMap:
             conflict_id1 (int): ID of the first waypoint sequence.
             conflict_id2 (int): ID of the second waypoint sequence.
         """
-        # Add conflict entries for both waypoints
-        self.conflict[conflict_id1].append(conflict_id2)
-        self.conflict[conflict_id2].append(conflict_id1)
+        # Avoid duplicate work
+        if (conflict_id1, conflict_id2) in self.conflict_point:
+            return
 
         # Find the closest points between the two waypoint arrays
         waypoints1 = self.waypoints[conflict_id1]
@@ -89,21 +89,36 @@ class TopoMap:
                     min_distance = distance
                     closest_index1 = idx1
                     closest_index2 = idx2
+        if min_distance < 1.0:
+            # Add conflict entries for both waypoints
+            self.conflict[conflict_id1].append(conflict_id2)
+            self.conflict[conflict_id2].append(conflict_id1)
 
-        # Calculate lengths along the path to the end for both waypoints
-        def calculate_path_length(waypoints, start_index):
-            """Helper function to calculate path length from start_index to the end."""
-            length = 0.0
-            for i in range(start_index, len(waypoints) - 1):
-                length += np.linalg.norm(waypoints[i + 1][:2] - waypoints[i][:2])
-            return length
+            # Calculate lengths along the path to the end for both waypoints
+            def calculate_path_length(waypoints, start_index):
+                """Helper function to calculate path length from start_index to the end."""
+                length = 0.0
+                for i in range(start_index, len(waypoints) - 1):
+                    length += np.linalg.norm(waypoints[i + 1][:2] - waypoints[i][:2])
+                return length
 
-        length_to_end1 = calculate_path_length(waypoints1, closest_index1)
-        length_to_end2 = calculate_path_length(waypoints2, closest_index2)
+            length_to_end1 = calculate_path_length(waypoints1, closest_index1)
+            length_to_end2 = calculate_path_length(waypoints2, closest_index2)
 
-        # Store the conflict_point as the lengths to the end along the path
-        self.conflict_point[(conflict_id1, conflict_id2)] = (length_to_end1, length_to_end2)
-        self.conflict_point[(conflict_id2, conflict_id1)] = (length_to_end2, length_to_end1)
+            # Store the conflict_point as the lengths to the end along the path
+            self.conflict_point[(conflict_id1, conflict_id2)] = (length_to_end1, length_to_end2)
+            self.conflict_point[(conflict_id2, conflict_id1)] = (length_to_end2, length_to_end1)
+
+    def find_all_conflict(self):
+        """
+        Examines all waypoint pairs for conflicts using the add_confliction method.
+
+        Iterates through all waypoint pairs and identifies conflicts between them.
+        """
+        waypoint_ids = list(self.waypoints.keys())
+        for i in range(len(waypoint_ids)):
+            for j in range(i + 1, len(waypoint_ids)):
+                self.add_confliction(waypoint_ids[i], waypoint_ids[j])
 
     def get_waypoints(self, waypoint_id):
         """
@@ -777,9 +792,15 @@ class RewardModel():
         # deterministic
         if state.terminate:
             return 100  # reach target and terminated
+
+        speed_mean = (self.vel_limit[0] + self.vel_limit[1]) / 2  # Midpoint of speed range
+        speed_std = (self.vel_limit[1] - self.vel_limit[0]) / 2  # Approximation of scale
+        accel_mean = (self.acc_limit[0] + self.acc_limit[1]) / 2  # Midpoint of acceleration range
+        accel_std = (self.acc_limit[1] - self.acc_limit[0]) / 2  # Approximation of scale
+
         R1 = [1]
-        R2 = [norm.pdf(state.data[0][1] + action.data * self.dt, loc=8.0, scale=4.0)]
-        R3 = [norm.pdf(action.data, loc=0.0, scale=2.0)]
+        R2 = [norm.pdf(state.data[0][1] + action.data * self.dt, loc=speed_mean, scale=speed_std)]
+        R3 = [norm.pdf(action.data, loc=accel_mean, scale=accel_std)]
         k = len(state.data)
         ego_point = self.map.find_waypoint_by_length(state.data[0][3], state.data[0][0])
         ego_list = [state.data[0][3]] + self.map.get_next_waypoints(state.data[0][3])
@@ -790,17 +811,20 @@ class RewardModel():
                 pointi = self.map.find_waypoint_by_length(state.data[i][3], state.data[i][0])
                 di = np.linalg.norm(ego_point[:2] - pointi[:2])
                 r1 = 1 / (1 + np.exp(2 * (self.d_safe - di))) - 0.5
-                speed_mean = (self.vel_limit[0] + self.vel_limit[1]) / 2  # Midpoint of speed range
-                speed_std = (self.vel_limit[1] - self.vel_limit[0]) / 2  # Approximation of scale
-                accel_mean = (self.acc_limit[0] + self.acc_limit[1]) / 2  # Midpoint of acceleration range
-                accel_std = (self.acc_limit[1] - self.acc_limit[0]) / 2  # Approximation of scale
                 r2 = norm.pdf(state.data[i][1], loc=speed_mean, scale=speed_std)
                 r3 = norm.pdf(state.data[i][2], loc=accel_mean, scale=accel_std)
                 R1.append(r1)
                 R2.append(r2)
                 R3.append(r3)
         reward = self.K1 * np.prod(R1) ** (1 / len(R1)) + self.K2 * np.prod(R2) ** (1 / len(R2)) + self.K3 * np.prod(R3) ** (1 / len(R3))
-        print(f"reward: {reward}, R1: {R1}, R2: {R2}, R3: {R3}")
+
+        formatted_data = ", ".join([f"[{s:.2f}, {v:.2f}, {a:.2f}, {r}]" for s, v, a, r in state.data])
+        R1_str = ", ".join([f"{r:.4f}" for r in R1])
+        R2_str = ", ".join([f"{r:.4f}" for r in R2])
+        R3_str = ", ".join([f"{r:.4f}" for r in R3])
+        print(f" Particle: {formatted_data}")
+        print(f"  reward: {reward:.4f}, R1: {R1_str}, R2: {R2_str}, R3: {R3_str}")
+
         # print(f"reward: R1 = {np.prod(R1) ** (1 / len(R1))}, R2 = {np.prod(R2) ** (1 / len(R2))}, R3 = {np.prod(R3) ** (1 / len(R3))}")
         return reward
 
